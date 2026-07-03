@@ -55,9 +55,9 @@ If you already have animation data in the timeline when you load a new PMX, Reze
 2. **Discards** every bone track whose bone name does not exist in the new skeleton.
 3. **Keeps** every morph track whose morph name exists in the new model's morph list.
 4. **Discards** every morph track whose morph name does not exist in the new morph list.
-5. Recalculates `frameCount` so it is at least as long as the latest retained keyframe.
+5. Recalculates `frameCount` as `Math.max(original frameCount, latest retained keyframe)`. If all tracks were dropped (empty result), `frameCount` falls back to `Math.max(original frameCount, DEFAULT_STUDIO_CLIP_FRAMES)`.
 
-The clip display name and the playhead position are preserved. If the retained clip would be completely empty (no tracks at all), a fresh blank clip is created instead and the clip display name resets to the model's filename stem.
+The clip display name and the playhead position are preserved. If the retained clip ends up empty (no tracks survived), Reze Studio still keeps the original clip display name — a fresh blank clip with a name derived from the model's filename stem is only created when there was no prior timeline at all (e.g. on a brand-new session).
 
 <Tip>
   Bone and morph names in MMD are Japanese strings (e.g. `上半身` for Upper Body, `左腕` for Left Arm). A custom PMX that uses the same conventional Japanese bone names as a standard MMD model will retain the most tracks when swapping.

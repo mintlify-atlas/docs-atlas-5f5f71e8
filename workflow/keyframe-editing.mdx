@@ -42,22 +42,14 @@ You can drag multiple selected keyframes simultaneously (see *Selecting multiple
 
 <Steps>
   <Step title="Select the keyframe">
-    Click a diamond in the dopesheet to select it. The selected diamond highlights in blue. You can also select multiple keyframes with Shift-click or box-select.
+    Click a diamond in the dopesheet to select it. The selected diamond highlights in blue. You can also Shift-click additional diamonds to extend the selection.
   </Step>
   <Step title="Delete">
-    Click the **Delete** button in the Operations section of the Properties Inspector, or press the `Delete` / `Backspace` key when the dopesheet has focus. The keyframe is removed from the track and the change is committed as one undo step.
+    Click the **Delete** button in the Operations section of the Properties Inspector. The keyframe is removed from the track and the change is committed as one undo step.
   </Step>
 </Steps>
 
-The Delete button is enabled only when exactly one keyframe is selected (`singleSel !== null`) and a clip is loaded.
-
-## Arrow Key Nudge
-
-With a keyframe selected in the dopesheet, press **← / →** to nudge it by exactly one frame. Each nudge press is a separate commit and therefore a separate undo step. This is useful for fine-tuning timing without switching away from the dopesheet.
-
-<Note>
-  The ← / → keys have two different behaviours depending on focus. When the **dopesheet or timeline canvas** has focus they nudge the selected keyframe. When the **playhead frame input** field has focus they decrement/increment the playhead frame instead.
-</Note>
+The Delete button is enabled only when exactly one keyframe is selected (`singleSel !== null`) and a clip is loaded. If multiple keyframes are selected the button is disabled — deselect down to a single diamond before deleting.
 
 ## Track Simplify
 
@@ -97,7 +89,7 @@ Click a diamond to select a single keyframe. To build a multi-selection:
 - **Click additional diamonds** while holding `Shift` to add or remove them from the selection.
 - The selection is stored as an array of `SelectedKeyframe` objects, each containing the bone name, frame number, channel (for curve-editor handles), and type (`"dope"` or `"curve"`).
 
-When multiple keyframes are selected, drag operations move all of them simultaneously by the same frame delta. Delete operations remove all selected keyframes in a single commit.
+When multiple keyframes are selected, drag operations move all of them simultaneously by the same frame delta. To delete, deselect down to a single keyframe first — the Delete button only activates for a single selection.
 
 <Note>
   **History limit:** Reze Studio keeps the last **100** committed edits. When the 101st edit is committed the oldest entry is dropped from the stack. Plan accordingly for large editing sessions — export a VMD checkpoint periodically to avoid losing work you can no longer undo.

@@ -11,10 +11,13 @@ The timeline panel sits at the bottom of the Reze Studio layout and offers two c
 The following constants govern the layout and zoom limits of the timeline canvas:
 
 ```ts
-const DOPE_H = 34       // height of the dopesheet strip in CSS pixels
-const RULER_H = 17      // height of the time ruler in CSS pixels
-const MIN_PX = 0.5      // minimum pixels per frame (most zoomed out)
-const MAX_PX = 40       // maximum pixels per frame (most zoomed in)
+const DOPE_H    = 34    // height of the dopesheet strip in CSS pixels
+const RULER_H   = 17    // height of the time ruler in CSS pixels
+const LABEL_W   = 36    // width of the fixed left label / value-axis gutter in CSS pixels
+const DOT_R     = 3.5   // radius of a curve-editor keyframe dot in CSS pixels
+const DIAMOND   = 5     // half-size of a dopesheet diamond in CSS pixels
+const MIN_PX    = 0.5   // minimum pixels per frame (most zoomed out)
+const MAX_PX    = 40    // maximum pixels per frame (most zoomed in)
 const Y_ZOOM_MIN = 0.5  // minimum value-axis zoom multiplier
 const Y_ZOOM_MAX = 8    // maximum value-axis zoom multiplier
 ```

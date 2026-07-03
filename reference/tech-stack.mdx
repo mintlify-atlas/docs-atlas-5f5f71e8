@@ -1,7 +1,7 @@
 ---
 title: "Reze Studio Tech Stack: Engine, Framework, and Dependencies"
 sidebarTitle: "Tech Stack"
-description: "Overview of every major dependency in Reze Studio — reze-engine, Next.js, React 19, shadcn/ui, Tailwind, and WebGPU."
+description: "Overview of every major dependency in Reze Studio — reze-engine, Next.js 16, React 19, shadcn/ui, Tailwind CSS v4, and WebGPU rendering."
 ---
 
 Every technology choice in Reze Studio is optimized for one goal: a timeline editor that feels native in a browser tab. The engine layer (reze-engine) handles GPU rendering, physics simulation, and IK entirely off the main thread via WebGPU. The framework layer (Next.js 16 + React 19) provides the declarative shell, while a set of carefully chosen hot-path bypasses keep React out of the 60Hz render loop entirely. The UI layer (shadcn/ui + Tailwind CSS v4) delivers accessible, composable primitives without introducing a heavyweight component runtime.

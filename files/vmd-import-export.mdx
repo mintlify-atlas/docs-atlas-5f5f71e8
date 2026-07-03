@@ -16,7 +16,7 @@ VMD (Vocaloid Motion Data) is the standard animation format for MikuMikuDance an
     Your browser's file-picker opens filtered to `.vmd` files. Select the file you want to import.
   </Step>
   <Step title="Clip loads into the timeline">
-    The engine parses the VMD, and all bone and morph tracks appear in the dopesheet immediately. The playhead resets to frame 0 and any previous animation is replaced. The undo/redo history is **not** cleared — the load is treated as an external replacement and does not go on the history stack.
+    The engine parses the VMD, and all bone and morph tracks appear in the dopesheet immediately. The playhead resets to frame 0 and any previous animation is replaced. The undo/redo history is **cleared** — loading a VMD calls `replaceClip`, which resets the past and future stacks so history from the previous clip does not bleed into your new work.
   </Step>
   <Step title="Clip name is set from the filename">
     The clip's display name (shown in the status bar and used as the export filename) is derived from the filename without its extension using `fileStem()`. A file named `my_dance.vmd` becomes the clip name `my_dance`.

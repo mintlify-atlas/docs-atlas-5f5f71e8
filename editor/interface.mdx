@@ -4,7 +4,7 @@ sidebarTitle: "Interface Overview"
 description: "Tour every panel in Reze Studio — left sidebar, WebGPU viewport, timeline, and properties inspector — and understand how they work together."
 ---
 
-Reze Studio arranges its workspace into four main regions: a narrow **left panel** that holds the file menu and the bone, morph, and material lists; a large central **WebGPU viewport** that renders the 3D model in real time; a **timeline** at the bottom for keyframe and curve editing; and a **properties inspector** on the right for numeric pose control and interpolation editing. A thin **status footer** runs across the very bottom of the page, reporting the loaded model name, current frame rate, and transient messages. All panels communicate through two shared external stores — the Studio store (document, selection, and undo/redo) and the Playback store (current frame and play state) — so a bone picked in the viewport immediately highlights in the bone list and populates the inspector without any explicit prop plumbing.
+Reze Studio arranges its workspace into four main regions: a narrow **left panel** that holds the file menu, the bone list, and the morph list; a large central **WebGPU viewport** that renders the 3D model in real time; a **timeline** at the bottom for keyframe and curve editing; and a **right panel** on the right with two tabs — **Properties** (numeric pose control, interpolation editing) and **Materials** (shader presets, visibility toggles). A thin **status footer** runs across the very bottom of the page, reporting the loaded model name, current frame rate, and transient messages. All panels communicate through two shared external stores — the Studio store (document, selection, and undo/redo) and the Playback store (current frame and play state) — so a bone picked in the viewport immediately highlights in the bone list and populates the inspector without any explicit prop plumbing.
 
 ## Provider Tree
 
@@ -28,7 +28,7 @@ Hot paths — playback ticks, keyframe drags, and pose-slider drags — bypass R
 
 ## Left Panel
 
-The left panel is a 224 px wide sidebar that hosts the file menu and three tabbed lists: **Bones**, **Morphs**, and **Materials**.
+The left panel is a 224 px wide sidebar that hosts the file menu and two lists: **Bones** and **Morphs**.
 
 <CardGroup cols={3}>
   <Card title="File Menu" icon="folder-open">
@@ -37,8 +37,8 @@ The left panel is a 224 px wide sidebar that hosts the file menu and three tabbe
   <Card title="Bone List" icon="list">
     Bones are grouped into categories (Upper Body, Left/Right Arm, hands, Lower Body, etc.). Click a group header to expand it, then click a bone row to select it. The bone list shows a keyframe count badge next to bones that have animation data. Selecting a bone here also activates the gizmo in the viewport.
   </Card>
-  <Card title="Morph / Material Lists" icon="layers">
-    The **Morphs** tab lists every blend-shape target in the loaded PMX. The **Materials** tab lists every material with a visibility toggle, a shader-preset dropdown, and a click-to-highlight interaction that draws a coloured outline in the viewport. Material selection is mutually exclusive with bone/morph selection.
+  <Card title="Morph List" icon="layers">
+    Below the bone list, the morph section lists every blend-shape target in the loaded PMX. Selecting a morph switches the Properties Inspector to the morph weight slider and auto-focuses the **Morph** curve tab in the timeline.
   </Card>
 </CardGroup>
 
@@ -72,9 +72,13 @@ The timeline panel occupies the lower portion of the layout. It contains a toolb
 
 For full details see the [Timeline guide](/editor/timeline).
 
-## Properties Inspector
+## Right Panel
 
-The Properties Inspector occupies a narrow panel on the right side of the layout. When a bone is selected it shows rotation sliders (Euler YXZ, in degrees), translation sliders, an interpolation curve editor with four sub-tabs (Rotation, Trans X/Y/Z), and track-operation buttons. When a morph is selected it shows a single weight slider. The inspector self-samples the engine pose via a `requestAnimationFrame` loop during playback so the sliders track the animation live without forcing a React re-render on every tick.
+The right-hand panel is a 256 px wide sidebar with two tabs. The **Properties** tab is the selection-bound inspector; the **Materials** tab is model-bound and lists every PMX material.
+
+### Properties Tab
+
+When a bone is selected the Properties tab shows rotation sliders (Euler YXZ, in degrees), translation sliders, an interpolation curve editor with four sub-tabs (Rotation, Trans X/Y/Z), and track-operation buttons. When a morph is selected it shows a single weight slider. The inspector self-samples the engine pose via a `requestAnimationFrame` loop during playback so the sliders track the animation live without forcing a React re-render on every tick.
 
 <CardGroup cols={2}>
   <Card title="Pose Sliders" icon="sliders-horizontal">
@@ -86,6 +90,10 @@ The Properties Inspector occupies a narrow panel on the right side of the layout
 </CardGroup>
 
 For full details see the [Properties Inspector guide](/editor/properties-inspector).
+
+### Materials Tab
+
+The Materials tab lists every material in the loaded PMX with a visibility checkbox, a shader-preset dropdown, and a click-to-highlight interaction that draws a coloured outline in the viewport — useful for identifying which mesh region corresponds to a given material name. Clicking a material name selects it (clearing any bone or morph selection); clicking the same name again or clicking blank space in the list deselects it. Material selection is mutually exclusive with bone and morph selection.
 
 ## Status Footer
 
