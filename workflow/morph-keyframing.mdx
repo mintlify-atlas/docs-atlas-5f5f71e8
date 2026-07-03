@@ -1,0 +1,110 @@
+---
+title: "Morph Weight Keyframing for Facial Animation"
+sidebarTitle: "Morphs"
+description: "Keyframe morph weights in Reze Studio to animate facial expressions, lip sync, and any morph blend shape defined in your PMX model."
+---
+
+In the MMD/PMX format, a **morph** is a stored shape-key that blends a mesh from a neutral rest shape toward a deformed target at a given weight between `0.0` (fully off) and `1.0` (fully on). Common morph targets include facial expressions (smile, frown, wink), lip shapes for phoneme sync (あ, い, う…), and eye/brow shaping. Reze Studio tracks morph weights as `MorphKeyframe` objects in the clip's `morphTracks` map — one track per named morph — and interpolates them linearly between keyframes during playback. The morph workflow is a simpler version of the bone workflow: no Bézier handle editing, no rotation math, just a weight value at a frame.
+
+## The Morph List Panel
+
+The left panel has two tabs: **Bones** and **Morphs**. Click the **Morphs** tab to reveal a scrollable list of every morph defined in the loaded PMX model. The morphs are listed by their PMX-internal names (typically Japanese). Scrolling, filtering, and layout mirror the bone list.
+
+## Selecting a Morph
+
+Click any morph name in the Morphs tab to select it. Selection is reflected in the studio state as `selectedMorph`. When a morph is selected:
+
+- The Properties Inspector switches its content to show the **Weight** slider for that morph.
+- The dopesheet highlights the morph's keyframe track.
+- The timeline curve editor switches to the **Morph** tab, showing the weight curve over time.
+
+<Note>
+  Morph selection is **mutually exclusive with bone and material selection**. Clicking a morph clears any selected bone, and vice versa. Selecting a material in the Materials panel clears both bone and morph selection. This ensures the Properties Inspector always shows exactly one thing at a time.
+</Note>
+
+## Setting Morph Weight
+
+With a morph selected, the Properties Inspector shows a single slider row labelled **Weight** with a purple accent colour (`#c084fc`). The slider range is **0.0 to 1.0**, displayed with two decimal places.
+
+As with bone sliders, there are two interaction modes:
+
+- **Drag the slider thumb:** previews the weight live in the viewport at every pointer-move without creating an undo step.
+- **Release the pointer:** commits the change as a single undo step and triggers an engine clip re-upload.
+- **Direct numeric input:** click the value field next to the slider to type an exact weight (e.g. `0.75`) and press **Enter**.
+
+## Inserting a Morph Keyframe
+
+Moving the weight slider automatically inserts or updates a morph keyframe at the current playhead frame. The logic mirrors bone auto-insert: no explicit "insert" step is required.
+
+If you prefer to insert a keyframe at the current frame without changing the weight, click the **Insert** button in the Operations section of the Properties Inspector while the morph is selected.
+
+## `upsertMorphKeyframeAtFrame`
+
+Internally, every morph weight commit calls `upsertMorphKeyframeAtFrame` from `lib/utils.ts`. The function handles both the insert-new and update-existing cases in a single pass:
+
+```typescript
+export function upsertMorphKeyframeAtFrame(
+  clip: AnimationClip,
+  morphName: string,
+  frame: number,
+  weight: number,
+): AnimationClip {
+  // Pull the existing track for this morph (or start fresh).
+  const prevTrack = clip.morphTracks.get(morphName) ?? []
+
+  // Remove any existing keyframe at this exact frame, then add the new one.
+  const nextTrack = prevTrack.filter((k) => k.frame !== frame)
+  nextTrack.push({ morphName, frame, weight })
+
+  // Keep the track sorted by frame so interpolation is correct.
+  nextTrack.sort((a, b) => a.frame - b.frame)
+
+  // Return an updated clip with the new track (shallow clone for React).
+  const morphTracks = new Map(clip.morphTracks)
+  morphTracks.set(morphName, nextTrack)
+  return { ...clip, morphTracks }
+}
+```
+
+The returned `AnimationClip` is then passed to `commit()`, which records it in the undo history.
+
+## The `MorphKeyframe` Type
+
+A morph keyframe is the simplest data type in the clip — just a name, a frame, and a weight:
+
+```typescript
+type MorphKeyframe = {
+  /** The morph's PMX-internal name (used to look up the track). */
+  morphName: string
+
+  /** Frame number at which this weight snapshot is taken. */
+  frame: number
+
+  /** Blend weight: 0.0 = no morph applied, 1.0 = full morph applied. */
+  weight: number
+}
+```
+
+Unlike `BoneKeyframe`, there is no `interpolation` field — morph interpolation is always linear between two adjacent keyframes.
+
+## Viewing Morph Keyframes in the Dopesheet
+
+When the **Morph** tab is active in the timeline, the dopesheet row shows diamonds for every `MorphKeyframe` in the selected morph's track. Morph keyframe diamonds respond to the same interactions as bone keyframe diamonds:
+
+- **Click** to select.
+- **Drag horizontally** to retime (one undo step on release).
+- **Arrow keys** to nudge by one frame.
+- **Delete** button or `Delete` key to remove.
+
+To see *all* morph tracks simultaneously alongside bone tracks, switch back to the **All Rot** or **All Trans** tab — the dopesheet rows for morphs appear below the bone rows when a morph track has at least one keyframe.
+
+## Deleting Morph Keyframes
+
+<Steps>
+  <Step title="Select the keyframe">
+    Click the diamond on the morph's dopesheet row at the frame you want to remove.
+  </Step>
+  <Step title="Delete">
+    Click **Delete** in the Operations section of the Properties Inspector. The keyframe is removed and the change is committed as one undo step.
+  </Step>
+</Steps>

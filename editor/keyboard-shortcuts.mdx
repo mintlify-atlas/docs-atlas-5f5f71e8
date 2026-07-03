@@ -1,0 +1,85 @@
+---
+title: "Keyboard Shortcuts Reference for Reze Studio"
+sidebarTitle: "Shortcuts"
+description: "Complete keyboard shortcut reference for playback, frame navigation, undo/redo, and keyframe editing in Reze Studio."
+---
+
+Reze Studio is designed to be operated fluidly from the keyboard. The most common actions — play/pause, frame stepping, and undo/redo — have single-key shortcuts that work globally whenever a text input does not have focus. A handful of shortcuts behave differently depending on which element has focus (most notably the arrow keys), so it is worth understanding the context rules described at the bottom of this page.
+
+## Keyboard Shortcuts
+
+| Key | Action |
+|---|---|
+| `Space` | Play / pause |
+| `←` / `→` | Step one frame back / forward |
+| `Home` | Jump to first frame (frame 0) |
+| `End` | Jump to last frame (`clip.frameCount`) |
+| `Ctrl` / `⌘` + `Z` | Undo last clip edit |
+| `Ctrl` / `⌘` + `Shift` + `Z` | Redo |
+| `⌘` + `Y` | Redo (macOS alternate) |
+| `←` / `→` _(in frame input)_ | Decrement / increment playhead frame |
+| `Shift` + mouse wheel | Zoom the value / Y axis |
+| `Ctrl` / `Cmd` + mouse wheel | Zoom the time / X axis |
+
+## Mouse Interactions
+
+| Interaction | Where | Action |
+|---|---|---|
+| Double-click mesh | Viewport | Pick the nearest bone; show gizmo + scroll bone list |
+| Double-click empty space | Viewport | Hide the transform gizmo (selection unchanged) |
+| Drag rotation ring | Viewport gizmo | Rotate the selected bone; auto-insert keyframe if needed |
+| Drag translation axis | Viewport gizmo | Translate the selected bone; auto-insert keyframe if needed |
+| Click diamond | Dopesheet | Select that keyframe |
+| Drag diamond | Dopesheet | Retime (move) the keyframe to a new frame number |
+| Click + drag | Timeline ruler or curve area | Scrub the playhead |
+| Drag keyframe dot | Curve editor | Move keyframe in time and value |
+| `Ctrl/⌘` + scroll | Timeline | Zoom the time (X) axis |
+| `Shift` + scroll | Timeline | Zoom the value (Y) axis |
+| Plain scroll | Timeline | Scroll horizontally |
+| Click material name | Materials tab | Highlight material with outline in viewport |
+| Click same material / blank area | Materials tab | Deselect material, remove outline |
+
+## Undo / Redo
+
+The undo/redo history holds the last **100** clip edits. Every action that modifies animation data — inserting or deleting a keyframe, dragging a slider, dragging the gizmo, simplifying a track, clearing a track, or retiming a keyframe in the dopesheet — lands as a single undoable entry.
+
+<CardGroup cols={2}>
+  <Card title="What is undoable" icon="rotate-left">
+    Any change to the `AnimationClip` data: keyframe inserts, deletes, retimes, pose slider drags, gizmo drags, interpolation curve edits, Simplify, and Clear.
+  </Card>
+  <Card title="What is NOT undoable" icon="exclamation-triangle">
+    Loading a new VMD file or PMX model is not placed on the history stack, because rewinding a model swap would desync the loaded geometry from the animation data.
+  </Card>
+</CardGroup>
+
+<Warning>
+  There is no server-side save. If you close or refresh the browser tab without exporting, your edits are lost. The browser will show an "unsaved changes" warning if you attempt to close while there are uncommitted edits, but this warning can be dismissed. Export early and often via **File → Export VMD…**.
+</Warning>
+
+## Context-Sensitive Arrow Keys
+
+Arrow key behaviour depends on which element has keyboard focus:
+
+<CardGroup cols={2}>
+  <Card title="Editor focus (default)" icon="arrow-left-right">
+    When no input field is focused, `←` and `→` step the playhead one frame backward and forward. This is the default state after clicking anywhere in the timeline canvas or viewport.
+  </Card>
+  <Card title="Frame input focused" icon="input-cursor-move">
+    When the frame-number input in the timeline toolbar has focus, `←` and `→` decrement and increment the frame number inside the input. Press `Enter` or click elsewhere to commit the value and return arrow-key control to the editor.
+  </Card>
+</CardGroup>
+
+<Tip>
+  If the arrow keys are not stepping the playhead, click anywhere in the timeline canvas or on the viewport to return focus to the editor. The frame-number input, bone-search fields, and any other text inputs capture arrow keys while they are focused.
+</Tip>
+
+## File Operations
+
+| Menu item | Shortcut | Description |
+|---|---|---|
+| File → New | — | Clear the timeline and start a fresh empty clip |
+| File → Load PMX folder… | — | Replace the model (pick the folder containing the `.pmx` and its textures) |
+| File → Load VMD… | — | Import an existing `.vmd` clip onto the current model |
+| File → Export VMD… | — | Download the current clip as a `.vmd` file |
+
+All file operations run entirely in the browser. No data is sent to any server.

@@ -1,0 +1,84 @@
+---
+title: "Loading PMX Models and Managing Assets in Reze Studio"
+sidebarTitle: "Loading Models"
+description: "Learn how to load your own PMX model with textures into Reze Studio, swap models mid-session, and understand how clips adapt to new models."
+---
+
+Reze Studio is a fully browser-native application — it has no server and no cloud storage. Model loading uses the browser's **File System Access API** (via an `<input>` element with `webkitdirectory`) to read an entire local folder at once, giving the engine access to the `.pmx` file alongside every texture it references. The loaded model replaces the current one in the viewport immediately, and the left-panel Bone, Morph, and Materials lists all update to reflect the new skeleton.
+
+## Loading a PMX folder
+
+<Steps>
+  <Step title="Open the File menu">
+    Click **File** in the top-left menu bar, then select **Load PMX folder…**.
+  </Step>
+  <Step title="Select the model folder">
+    Your browser's folder-picker dialog opens. Navigate to and select the folder that contains your `.pmx` file. All textures, toon maps, and sphere maps must be inside that folder or its subfolders — the engine resolves texture paths relative to the `.pmx` location.
+  </Step>
+  <Step title="Choose a PMX if the folder contains more than one">
+    If the selected folder contains multiple `.pmx` files, a small picker appears beneath the File menu. Use the dropdown to choose the correct file, then click **Load selected PMX**.
+  </Step>
+  <Step title="Model loads in the viewport">
+    The engine removes the previous model, loads the new one (including IK and physics), and updates the Bones panel, the Morphs panel, and the Materials panel. The viewport renders the new model immediately on the next frame.
+  </Step>
+</Steps>
+
+<Warning>
+  Loading a new PMX model is **not undoable**. It does not go on the undo/redo history stack — doing so would desync the undo target from the loaded skeleton. Make sure you have exported any work you want to keep before swapping models.
+</Warning>
+
+## Texture co-location requirement
+
+PMX files reference textures by *relative path*. The engine resolves those paths against the folder you selected, so a texture referenced as `tex/body.png` must exist at `<your-folder>/tex/body.png`. Placing the `.pmx` alone in a folder and keeping textures elsewhere will cause them to fail to load — the model will still appear, but surfaces will render without their textures.
+
+**Best practice:** keep the `.pmx` and its entire companion folder structure together and select the root of that folder when prompted.
+
+## The default bundled model
+
+When Reze Studio first opens, it automatically loads a default model so you can start editing right away without having any local PMX files. The bundled model is served from the application's own assets:
+
+```
+/models/塞尔凯特/塞尔凯特.pmx
+```
+
+This path is defined as `MODEL_PATH` in `engine-bridge.tsx`. The engine loads it under the internal name `"reze"`. Once the engine finishes initializing, it also loads the [bundled sample animation](/files/vmd-import-export#the-bundled-sample-clip) on top of the default model so the viewport is live from the very first render.
+
+<Note>
+  The bundled model sets a specific morph weight (`抗穿模 = 0.5`) on load to prevent mesh clipping artifacts. When you load a custom PMX this morph is not applied unless your model also defines a morph with the same name.
+</Note>
+
+## Swapping models with an active clip
+
+If you already have animation data in the timeline when you load a new PMX, Reze Studio does **not** discard your work outright. Instead, it runs a retention pass via `clipRetainedForModel`, which:
+
+1. **Keeps** every bone track whose bone name exists in the new model's skeleton.
+2. **Discards** every bone track whose bone name does not exist in the new skeleton.
+3. **Keeps** every morph track whose morph name exists in the new model's morph list.
+4. **Discards** every morph track whose morph name does not exist in the new morph list.
+5. Recalculates `frameCount` so it is at least as long as the latest retained keyframe.
+
+The clip display name and the playhead position are preserved. If the retained clip would be completely empty (no tracks at all), a fresh blank clip is created instead and the clip display name resets to the model's filename stem.
+
+<Tip>
+  Bone and morph names in MMD are Japanese strings (e.g. `上半身` for Upper Body, `左腕` for Left Arm). A custom PMX that uses the same conventional Japanese bone names as a standard MMD model will retain the most tracks when swapping.
+</Tip>
+
+## Bone list after loading
+
+After a model loads, the left panel shows all skeleton bones organized into named groups. The groups are defined in `lib/animation.ts` as `BONE_GROUPS`:
+
+| Group | Contents |
+|---|---|
+| **All Bones** | Every bone in the skeleton (no filter) |
+| **Upper Body** | Head, neck, chest, upper torso, waist (`頭`, `首`, `上半身`, `上半身2`, `胸`, `首根元`, `腰`) |
+| **Left Arm** | Left shoulder through wrist and twist bones |
+| **Right Arm** | Right shoulder through wrist and twist bones |
+| **Left Hand** | Left wrist and all left finger joints |
+| **Right Hand** | Right wrist and all right finger joints |
+| **Lower Body** | Pelvis, legs, knees, ankles, toes, centre/groove root, and IK targets |
+
+Bones that appear in the current clip are highlighted in the list regardless of which group is active. Clicking a group header filters the list to that group; clicking the same header again collapses back to **All Bones**.
+
+<Note>
+  The File System Access API (the `webkitdirectory` folder picker) is supported in Chromium-based browsers (Chrome, Edge, Opera) and in Firefox. It is **not** available in Safari on iOS or macOS as of mid-2025. If the folder picker does not open or produces no result, try Chrome or Edge on a desktop.
+</Note>

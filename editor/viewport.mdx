@@ -1,0 +1,89 @@
+---
+title: "WebGPU Viewport: 3D Rendering and Bone Interaction"
+sidebarTitle: "Viewport"
+description: "Learn how to use the 3D viewport for bone picking, transform gizmo dragging, material selection, and real-time playback in Reze Studio."
+---
+
+The WebGPU viewport is the central panel of Reze Studio: a full-resolution `<canvas>` element driven by [reze-engine](https://github.com/AmyangXYZ/reze-engine) that renders your PMX model with real-time IK chain solving, Bullet physics simulation, and morph blending. It is deliberately wrapped in `React.memo` and receives no props that change during playback, so the React reconciler never touches it during a 60 Hz playback tick — all playhead movement is handled imperatively via a `requestAnimationFrame` loop inside `<EngineBridge>`.
+
+## Bone Picking
+
+Double-clicking anywhere on the model's mesh fires a GPU raycast that resolves the nearest bone to the hit triangle. When the ray hits the mesh, the studio performs the following actions simultaneously:
+
+<Steps>
+  <Step title="Select the bone">
+    The Studio store's `selectedBone` is updated to the hit bone name. Any previously selected morph or material is cleared, and the selected-keyframes list is reset.
+  </Step>
+  <Step title="Scroll the bone list">
+    The left-panel bone list scrolls to bring the newly selected bone row into view — useful when the model has hundreds of bones and the relevant row is off-screen.
+  </Step>
+  <Step title="Show the transform gizmo">
+    A rings-and-axes gizmo appears at the bone's world-space origin. The `gizmoVisible` flag in the Studio store is set to `true`.
+  </Step>
+  <Step title="Populate the Properties Inspector">
+    The right-panel inspector immediately reflects the bone's current rotation and translation values, and the interpolation editor updates to show that bone's active keyframe.
+  </Step>
+</Steps>
+
+<Note>
+  Double-clicking the **same bone** a second time re-shows the gizmo even if it was previously hidden. Re-selecting the same bone always sets `gizmoVisible` back to `true` in the Studio store, so the gizmo re-appears at the bone's current world position. This is intentional: it gives you a reliable way to bring the gizmo back after accidentally hiding it.
+</Note>
+
+## Transform Gizmo
+
+Once a bone is selected, a 3D gizmo renders at the bone's position. The gizmo has two sets of handles that map to the two keyframe channels:
+
+| Handle type | Gesture | Effect |
+|---|---|---|
+| Rotation rings | Drag around a ring | Writes `rotation` (quaternion) to the keyframe at the current frame |
+| Translation axes | Drag along an axis arrow | Writes `translation` (Vec3) to the keyframe at the current frame |
+
+The gizmo drag logic mirrors the preview/commit pattern used by the Properties Inspector sliders:
+
+- **During drag** (`phase: "move"`): the keyframe is mutated in place and the engine immediately re-seeks so the viewport reflects the new pose. No React state is touched, so the timeline and inspector do not re-render mid-drag.
+- **On drag end** (`phase: "end"`): if the drag actually moved the bone, `commit()` is called once with a shallow-cloned clip reference. This lands a single entry on the undo/redo stack and triggers `<EngineBridge>` to re-upload the clip to the engine.
+- **No-op drag**: if the user clicks the gizmo without moving it, `dragDirtyRef` stays `false` and no commit occurs.
+
+If no keyframe exists at the current frame when a drag starts, one is automatically inserted. The untouched channel (rotation if you are translating, translation if you are rotating) is sampled from the engine's current interpolated pose so the new keyframe preserves whatever is currently on screen for the other channel.
+
+## Material Picking
+
+Material selection happens in the **Materials tab** of the left panel, not in the viewport itself. Clicking a material name in the list sends a `setSelectedMaterial` action to the Studio store, which `<EngineBridge>` mirrors to the engine via `engine.setSelectedMaterial(modelName, materialName)`. The engine responds by drawing a coloured outline around the selected material's mesh region.
+
+<CardGroup cols={2}>
+  <Card title="Highlight in viewport" icon="eye">
+    Click any material name in the Materials tab to highlight it with an outline in the 3D viewport. This is useful for identifying which mesh region a material corresponds to, especially for complex PMX models with many overlapping surfaces.
+  </Card>
+  <Card title="Deselect" icon="x-circle">
+    Click the same material name again, or click blank space in the material list, to clear the selection. The engine removes the outline immediately.
+  </Card>
+</CardGroup>
+
+<Warning>
+  Material selection is **mutually exclusive** with bone and morph selection. Picking a material in the list clears `selectedBone` and `selectedMorph`, and vice versa. The Properties Inspector goes blank while a material is selected because there are no pose sliders or keyframe data associated with materials.
+</Warning>
+
+## Playback in the Viewport
+
+When you press **Space** or click the play button, the engine takes ownership of the animation clock and advances the playhead in its own rAF loop. The viewport reflects:
+
+- **Skeletal animation**: bones move according to the keyframes and Bézier interpolation curves stored in the clip.
+- **IK chain solving**: foot-IK and eye-IK chains are re-solved every frame so IK-target bones drive the chain correctly.
+- **Bullet physics**: spring bones (hair, skirt, etc.) simulate in real time. Abrupt seeks can cause physics artefacts; the engine schedules a `resetPhysics()` call one rAF after any large frame jump to re-stabilize velocities.
+- **Morph blending**: morph tracks are sampled linearly between keyframes, so blend-shape targets (facial expressions, eye shapes) animate smoothly.
+
+The playhead position is written directly to `currentFrameRef.current` inside the rAF loop — without calling `setCurrentFrame` — so the React tree never reconciles at 60 Hz. The Timeline playhead is repainted imperatively via a `playheadDrawRef` handle. React state is only updated once when playback reaches the end of the clip or is stopped.
+
+## Gizmo Visibility
+
+The `gizmoVisible` flag in the Studio store controls whether the transform gizmo renders in the viewport. It interacts with selection as follows:
+
+| Action | `gizmoVisible` result |
+|---|---|
+| Double-click a bone (raycast hit) | Set to `true` |
+| Double-click empty space (raycast miss) | Set to `false` — selection unchanged |
+| Click a bone in the bone list | Set to `true` |
+| Select a morph or material | Implicitly hidden (engine receives `null` bone) |
+| Press Undo/Redo | Preserved at its current value |
+
+The engine receives the effective selection via `engine.setSelectedBone(modelName, gizmoVisible ? selectedBone : null)`. Passing `null` removes the gizmo and bone outline from the render without changing which bone is selected in React state — so the Properties Inspector, timeline highlights, and bone list highlight remain active even when the gizmo is hidden.

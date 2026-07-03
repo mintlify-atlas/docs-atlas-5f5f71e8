@@ -1,0 +1,185 @@
+---
+title: "Reze Studio Architecture: State Management and Performance"
+sidebarTitle: "Architecture"
+description: "Deep dive into how Reze Studio manages state across its external stores, achieves 60fps with React, and keeps hot paths out of the React render cycle."
+---
+
+Timeline editors are one of the hardest things to build in React. At any given moment you have a high-frequency playhead, multi-axis pointer drags, potentially thousands of keyframe diamonds drawn on a canvas, and a WebGPU renderer that must never stall — all living under the same component tree as an ordinary declarative UI. The naive approach — storing `currentFrame` in `useState` and letting React reconcile on every animation frame — produces a jittery, partially-frozen experience within seconds of pressing play. Reze Studio sidesteps these problems through a layered architecture: split external stores with slice subscriptions, imperative hot-path mutations that bypass React entirely, a shared ref for the live playhead, and a snapshot strategy that keeps undo history pristine even while preview-time edits mutate clip data in place.
+
+## Provider Tree
+
+The root of every Reze Studio session is a nested provider stack that deliberately separates concerns by update frequency. Document edits and transport events have very different rates; co-locating them in a single store would mean playback ticks constantly invalidating the undo/redo target.
+
+```text
+<Studio>                          external store — clip + selection (undo/redo target)
+  └─ <Playback>                   external store — currentFrame, playing (never touched by rAF ticks)
+       └─ <StudioStatusProvider>  external store — pmx name, fps, message (isolated from page re-renders)
+            └─ <StudioPage>       layout shell + file handlers
+                 ├─ <EngineBridge>          headless — all engine-coupled effects, returns null
+                 ├─ <StudioLeftPanel>       memo'd — bone list, morph list, file menu
+                 ├─ <StudioViewport>        memo'd — WebGPU <canvas>
+                 ├─ <Timeline>              slice-subscribed — dopesheet + curve editor
+                 │    └─ <TimelineCanvas>   imperative playhead + drag redraw handles
+                 ├─ <PropertiesInspector>   slice-subscribed — pose sliders, morph weight (self-samples via rAF during playback)
+                 └─ <StudioStatusFooter>    slice-subscribed — pmx name, fps, clip name
+```
+
+`<EngineBridge>` is intentionally headless — it renders `null` and owns every `useEffect` that touches the engine (initialization, clip upload, seek, play/pause, and the 60Hz rAF playback loop). Keeping it separate from `<StudioPage>` means engine effects never block the layout shell from re-rendering, and vice versa.
+
+## State Layers
+
+Each piece of state lives in the layer with the narrowest blast radius. Playback ticks cannot corrupt history; status bar updates cannot re-render the document.
+
+| Layer | Lives in | Notes |
+|---|---|---|
+| Document | `context/studio-context.ts` | External store, slice subscriptions, undo/redo target |
+| Selection | `context/studio-context.ts` | Bone, morph, keyframes |
+| Transport | `context/playback-context.ts` | External store; `currentFrame`, `playing`; store-owned `currentFrameRef` for rAF consumers |
+| Status chrome | `components/studio-status.tsx` | External store; pmx filename, fps, transient message |
+| Engine refs | `StudioPage` | `engineRef`, `modelRef`, `canvasRef` |
+| View | local `useState` in `Timeline` | Zoom, scroll, tab |
+| Chrome | local `useState` in `StudioPage` | Menubar, file pick dialog |
+
+## External Stores with `useSyncExternalStore`
+
+Both `<Studio>` and `<Playback>` are implemented as hand-rolled external stores — plain objects with a `getState` / `subscribe` / `actions` shape — mounted into React context via a `useRef`-stabilized instance. Components subscribe to a slice of that state using the `useStudioSelector` or `usePlaybackSelector` hooks.
+
+```typescript
+/** Subscribe to a slice of studio state. Component re-renders only when the
+ *  selected value changes (Object.is compare). Selectors should return a
+ *  reference-stable value from state — prefer top-level fields. */
+export function useStudioSelector<T>(selector: (state: StudioState) => T): T {
+  const store = useStudioStore()
+  const getSnapshot = () => selector(store.getState())
+  return useSyncExternalStore(store.subscribe, getSnapshot, getSnapshot)
+}
+
+/** Stable actions bag — never causes a re-render. Use this in components that
+ *  only dispatch without reading state. */
+export function useStudioActions(): StudioActions {
+  return useStudioStore().actions
+}
+```
+
+The same pattern exists for playback:
+
+```typescript
+/** Subscribe to a slice of playback state. */
+export function usePlaybackSelector<T>(selector: (state: PlaybackState) => T): T {
+  const store = usePlaybackStore()
+  const getSnapshot = () => selector(store.getState())
+  return useSyncExternalStore(store.subscribe, getSnapshot, getSnapshot)
+}
+
+/** Stable actions bag — never causes a re-render. */
+export function usePlaybackActions(): PlaybackActions {
+  return usePlaybackStore().actions
+}
+```
+
+Because `useSyncExternalStore` compares the selector's return value with `Object.is`, a component that subscribes to `s => s.selectedBone` is completely invisible to changes in `s.clip`, `s.past`, or any other field. Action bags (`useStudioActions()`, `usePlaybackActions()`) are stable references and never trigger a re-render regardless of how many actions fire.
+
+## Hot Paths Bypass React
+
+Three interactions run far too fast to afford a React reconcile on every tick:
+
+- **Playback rAF loop** — the engine's animation clock ticks at up to 60Hz.
+- **Keyframe drag** — each pointer-move event mutates a keyframe's position in the clip's bone track array directly, calls `model.loadClip` + `model.seek`, and repaints the timeline canvas through an imperative handle.
+- **Pose slider drag** — the `<AxisSliderRow>` component holds a local drag value during the gesture and writes it straight into the live `clip.boneTracks` entry; no `setState` is called until `pointerup`.
+
+In all three cases React is touched exactly once — at the end of the gesture — when `commit()` is called with the final value. This keeps reconcile cost proportional to the number of *completed* edits, not the number of *intermediate* events.
+
+## `currentFrameRef` Escape Hatch
+
+The playback store owns a `RefObject<number>` alongside the normal reactive `currentFrame` field:
+
+```typescript
+type PlaybackStore = {
+  getState: () => PlaybackState
+  subscribe: (listener: () => void) => () => void
+  actions: PlaybackActions
+  currentFrameRef: RefObject<number>  // ← written directly by the rAF loop
+}
+```
+
+During playback, `<EngineBridge>`'s rAF loop writes the live frame straight into `currentFrameRef.current` — it does **not** call `setCurrentFrame`. This means zero React subscribers are notified at 60Hz, and the timeline canvas repaints by calling a separate imperative `playheadDrawRef` handle. Components that only need to *read* the current frame without subscribing (the inspector's pose sampler, the PMX-swap snapshot) access it via `usePlaybackFrameRef()`.
+
+```typescript
+/** Read-only, non-subscribing access to the latest playhead. The returned ref
+ *  identity is stable for the lifetime of <Playback>, so consuming this hook
+ *  will NOT cause a re-render when the playhead moves. */
+export function usePlaybackFrameRef(): RefObject<number> {
+  return usePlaybackStore().currentFrameRef
+}
+```
+
+The store's `set()` is careful not to clobber this ref on unrelated state transitions (e.g. `setPlaying(false)`) — doing so would cause a resuming play to jump back to a stale position.
+
+## Snapshot-Bridged Undo
+
+Because slider preview and keyframe drag mutate `clip.boneTracks` entries in place (for performance — the engine shares those arrays), the store cannot use the previous state reference as the undo target. Instead it keeps an immutable `clipSnapshot`: a deep clone taken at the last `commit`, `undo`, or `redo`.
+
+```typescript
+export type StudioState = {
+  clip: AnimationClip | null         // live, may be mutated in place during drag
+  clipSnapshot: AnimationClip | null // immutable clone — the undo/redo target
+  past: AnimationClip[]              // snapshots, capped at HISTORY_LIMIT (100)
+  future: AnimationClip[]
+  // ... selection, display name, etc.
+}
+```
+
+When `commit()` fires it pushes `clipSnapshot` — not `clip` — onto `past`, then replaces both `clip` and `clipSnapshot` with a fresh clone of the incoming value:
+
+```typescript
+commit: (payload) => {
+  const next = resolve(payload, state.clip)
+  // ...
+  const finalNext = clipAfterKeyframeEdit(next)
+  set({
+    ...state,
+    clip: finalNext,
+    clipSnapshot: cloneAnimationClip(finalNext), // new immutable snapshot
+    past: pushPast(state.past, state.clipSnapshot), // push the OLD snapshot
+    future: [],
+  })
+},
+```
+
+When `undo()` fires, the popped snapshot is cloned before being assigned to `clip` — preventing subsequent preview-time mutations from poisoning the history entry:
+
+```typescript
+undo: () => {
+  if (state.past.length === 0) return
+  const popped = state.past[state.past.length - 1]
+  const past = state.past.slice(0, -1)
+  const future =
+    state.clipSnapshot != null
+      ? [state.clipSnapshot, ...state.future]
+      : state.future
+  // popped is immutable; clone it so preview-time mutation can't poison history.
+  set({
+    ...state,
+    clip: cloneAnimationClip(popped),
+    clipSnapshot: popped,
+    past,
+    future,
+  })
+},
+```
+
+`replaceClip()` follows the same clone discipline but clears `past` and `future` entirely — it is used for VMD imports and PMX swaps that should not appear on the history stack.
+
+## File Responsibility
+
+| File | Responsibility |
+|---|---|
+| `app/page.tsx` | Next.js entry — mounts all providers + `<StudioPage />` |
+| `context/studio-context.ts` | Document + selection store, `useStudioSelector`, actions |
+| `context/playback-context.ts` | Transport store, selectors, actions, `usePlaybackFrameRef` |
+| `components/studio.tsx` | `StudioPage` — layout, file handlers, menubar, export |
+| `components/studio-status.tsx` | Status-bar store + `<StudioStatusFooter>` |
+| `components/engine-bridge.tsx` | Engine-coupled effects (init, seek, play, rAF playback loop) |
+| `components/timeline.tsx` | Dopesheet + curve editor, imperative playhead / drag redraw |
+| `components/properties-inspector.tsx` | Pose sliders, morph weight, interpolation editor |
+| `components/axis-slider-row.tsx` | Slider row with preview/commit split + local-drag value |

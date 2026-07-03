@@ -1,0 +1,78 @@
+---
+title: "Reze Studio: Browser-Native MMD Animation Editor"
+sidebarTitle: "Introduction"
+description: "Learn what Reze Studio is, what it can do, and why it exists as a cross-platform web replacement for traditional MMD animation tools."
+---
+
+Reze Studio is a browser-native, WebGPU-powered animation curve editor for MikuMikuDance (MMD), built on top of [reze-engine](https://github.com/AmyangXYZ/reze-engine). It brings a professional timeline, dopesheet, and per-channel Bézier interpolation editor to the web — no installation, no Windows dependency, no plugin. Open [reze.studio](https://reze.studio) in a compatible browser and you have a full keyframe editing environment that runs directly on your GPU, delivering high-frame-rate playback and fluid interaction on anything from an iPad to a gaming laptop.
+
+## What Reze Studio Does
+
+Reze Studio covers the complete hand-keying workflow: load a PMX model and VMD clip, pick bones in the viewport or sidebar, pose them with sliders or a 3D gizmo, sculpt motion curves in the Bézier editor, and export back to VMD — all without a single byte touching a server.
+
+<CardGroup cols={2}>
+  <Card title="WebGPU Rendering" icon="gpu">
+    The viewport is powered by reze-engine's WebGPU renderer, including IK solving, Bullet-based physics simulation, and a 60 Hz render loop. Bone gizmos (rings for rotation, axes for translation) appear directly in the 3D scene — no separate overlay needed.
+  </Card>
+  <Card title="Timeline and Dopesheet" icon="timeline">
+    A full-width timeline shows keyframe diamonds for every bone and morph track in the clip. Drag diamonds sideways to retime, nudge with arrow keys, or drag-select a range and delete. The playhead scrubs the viewport live at rAF frequency.
+  </Card>
+  <Card title="Bézier Curve Editor" icon="chart-spline">
+    Switch the timeline to curve-editor mode to see per-channel Bézier graphs — rotX, rotY, rotZ, transX, transY, transZ — each with its own coloured curve and draggable handles. This is where stiff, linear motion becomes alive.
+  </Card>
+  <Card title="VMD Import / Export" icon="file-import">
+    Load any `.vmd` file with **File → Load VMD…** and export your edited clip with **File → Export VMD…**. Everything stays in your browser; nothing is uploaded to a server. Track simplification (keyframe reduction) and full-track clear are also available.
+  </Card>
+  <Card title="3D Gizmo and Bone Picking" icon="cube">
+    Double-click any part of the model in the viewport to pick the nearest bone. A ring-and-axis gizmo appears at that bone in world space: drag the rings to rotate, drag the axes to translate. Every completed drag lands as a single undoable edit.
+  </Card>
+  <Card title="Undo / Redo" icon="arrow-rotate-left">
+    Every committed clip edit — keyframe insert, delete, pose change, curve adjustment, track simplify, track clear — goes onto a 100-step undo stack. `Ctrl/⌘ + Z` rewinds; `Ctrl/⌘ + Shift + Z` (or `⌘ + Y`) redoes. Mid-drag previews are never recorded.
+  </Card>
+</CardGroup>
+
+## What Reze Studio Is NOT
+
+Reze Studio is a focused keyframing tool, not an all-in-one MMD suite.
+
+- **Not a full MMD replacement.** There is no MME-style shader system, no video export, and no stage/accessory management. Reze Studio is specifically about editing bone and morph animation data.
+- **Not trying to be Maya or Blender.** The scope is intentionally narrow: load a model, key the motion, export VMD. Rigging, modelling, and rendering pipelines are out of scope.
+- **Not a renderer.** The viewport is a high-quality real-time preview — useful for evaluating motion — but it is not an offline render pipeline.
+
+<Note>
+  If you need full MMD rendering with post-processing effects, use Reze Studio to author and polish the animation, then load the exported VMD into your renderer of choice.
+</Note>
+
+## Browser Compatibility
+
+Reze Studio requires **WebGPU**, the modern GPU API that replaces WebGL for compute- and graphics-intensive web applications. WebGPU is not available in all browsers yet.
+
+| Browser | Minimum Version | Notes |
+|---|---|---|
+| Chrome | 113+ | Full support; recommended |
+| Edge | 113+ | Full support (Chromium-based) |
+| Safari | 18+ | Full support on macOS 15 / iOS 18 |
+| Firefox | Behind a flag | Enable `dom.webgpu.enabled` in `about:config` |
+
+<Warning>
+  Visiting [reze.studio](https://reze.studio) in a browser without WebGPU support will show an error. Check [caniuse.com/webgpu](https://caniuse.com/webgpu) for the latest compatibility matrix.
+</Warning>
+
+<Tip>
+  On Chrome and Edge you can verify WebGPU is active by opening DevTools → Console and running `navigator.gpu`. A truthy result means WebGPU is available.
+</Tip>
+
+## Roadmap
+
+The features below are planned or actively in development. They are **not yet available** in the live editor.
+
+<Note>
+  All items in this list are in development and subject to change. Follow the [GitHub repository](https://github.com/AmyangXYZ/reze-studio) for progress updates.
+</Note>
+
+- **Animation layers** — multiple weighted layers with per-bone masks, enabling additive and override compositing of clips.
+- **Custom bone groups** — user-defined groups with mute and solo toggles, so you can focus on one body region without noise from the rest of the rig.
+- **Clip operations** — cut, copy, paste, mirrored paste (left ↔ right bone symmetry), per-clip import, and time-stretch.
+- **Mocap import** — video-to-VMD pipeline that converts a recorded performance into keyframes directly in the browser.
+- **Real-time collaboration** — Overleaf-style co-editing so multiple animators can work on the same clip simultaneously.
+- **AI-assisted animation** — generative keyframe infill and motion retargeting to accelerate the roughing-in phase.

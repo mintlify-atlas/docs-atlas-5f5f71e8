@@ -1,47 +1,123 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with Reze Studio in Minutes"
+sidebarTitle: "Quickstart"
+description: "Open Reze Studio, load your PMX model and VMD clip, make your first keyframe edit, and export back to VMD — step by step."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+This guide walks you through the complete first-run experience: opening the editor, optionally loading your own PMX model and VMD clip, posing a bone, shaping the interpolation curve between two keyframes, and exporting the finished clip back to a `.vmd` file. No installation is required — everything runs in your browser.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+<Note>
+  Reze Studio requires a browser with **WebGPU** support. Chrome 113+, Edge 113+, and Safari 18+ all work out of the box. Firefox requires enabling `dom.webgpu.enabled` in `about:config`.
+</Note>
 
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+## Step-by-Step Setup
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Open the Editor">
+    Navigate to [reze.studio](https://reze.studio). A default Reze character model and a sample VMD clip load automatically, so you can start exploring immediately — no file to pick, no account to create.
 
-    ```bash
-    npm install your-package
-    ```
+    While the engine initialises you will see a loading indicator in the status bar at the bottom of the screen. Once the viewport shows the model standing in the scene and the timeline populates with keyframe diamonds, the editor is ready.
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
 
-    ```bash
-    your-cli init
-    ```
+  <Step title="Load Your Own PMX Model (Optional)">
+    If you want to work with a specific PMX character instead of the bundled model:
+
+    1. Go to **File → Load PMX folder…** in the top menu bar.
+    2. Select the **folder** that contains your `.pmx` file.
+
+    <Warning>
+      The texture images (`.png`, `.bmp`, `.tga`, etc.) must be in the **same folder** as the `.pmx` file, or in subfolders relative to it, exactly as the PMX references them. If textures are missing the model will load but appear with missing materials in the viewport.
+    </Warning>
+
+    After loading, the bone list on the left panel updates to the new model's skeleton, and the morph list updates to its facial morphs. Any clip that was loaded remains in place — VMD bone names are matched by string, so keyframes for bones that exist on both models will transfer automatically.
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
 
-    ```bash
-    your-cli start
-    ```
+  <Step title="Load an Existing Clip or Start Fresh">
+    You have two options for the animation data:
+
+    **Load an existing VMD file:**
+    Go to **File → Load VMD…** and pick a `.vmd` file from your computer. The timeline fills with the clip's keyframes and the viewport seeks to frame 0.
+
+    **Start from scratch:**
+    Go to **File → New** to clear the timeline completely. The model holds its rest pose and the dopesheet is empty — ready for you to key every pose yourself.
+
+    <Tip>
+      If you are new to keyframe animation, loading an existing VMD is the faster way to learn. You can study the existing curves before making your own edits.
+    </Tip>
+  </Step>
+
+  <Step title="Pick a Bone">
+    Select the bone you want to animate using any of these three methods:
+
+    - **Left panel:** Click a bone name in the bone list on the left side of the screen. The list is grouped by body region (Upper Body, Left Arm, Right Hand, Lower Body, etc.) and shows both the Japanese name and its English translation — for example, `左腕 (Left upper arm)`.
+    - **Dopesheet:** Click a bone's track label directly in the timeline.
+    - **Viewport:** **Double-click** the model in the 3D viewport. The engine performs a raycast against the mesh and selects the bone nearest the hit surface. The bone list scrolls to that entry automatically.
+
+    Once a bone is selected, a rings-and-axes **3D gizmo** appears at its position in the viewport, and the **Properties Inspector** on the right shows the bone's current rotation and translation channels along with all its keyframes.
+  </Step>
+
+  <Step title="Pose the Bone">
+    Move the playhead to the frame where you want to set a pose, then edit the bone's transform using one of two methods:
+
+    **Properties Inspector sliders:**
+    Drag the rotation (Rot.X / Y / Z, in degrees) or translation (Trans.X / Y / Z) sliders in the right panel. You can also click the number next to a slider and type a value directly. While you drag, the viewport updates live as a preview. On release, the edit commits to the undo stack as a single step.
+
+    **3D viewport gizmo:**
+    - Drag a **ring** (colour-coded red/green/blue for X/Y/Z) to rotate around that axis.
+    - Drag an **arrow axis** to translate along that axis.
+
+    If no keyframe exists at the current frame, one is inserted automatically — the untouched channels are read from the interpolated pose so you only override what you drag.
+  </Step>
+
+  <Step title="Shape the Interpolation Curve">
+    The path the engine takes *between* two keyframes is controlled by Bézier curves stored inside each keyframe. To edit them:
+
+    1. In the **dopesheet**, click the diamond of the keyframe you want to shape.
+    2. Click the **Curve Editor** tab in the timeline panel (next to the Dopesheet tab).
+    3. Each channel — Rot.X, Rot.Y, Rot.Z, Trans.X, Trans.Y, Trans.Z — shows its own curve with two draggable handles.
+    4. Drag the handles to reshape the easing. Pulling both handles up creates an ease-in; pulling them down creates an ease-out. Making the curve S-shaped produces a slow-out/slow-in feel.
+
+    <Tip>
+      You only need to edit the channels that are actually animating. If a bone only rotates around Y, the Rot.Y curve is the one that matters. The other channels default to a linear (nearly straight) curve and can be left alone.
+    </Tip>
+  </Step>
+
+  <Step title="Export Your VMD">
+    When you are happy with the animation, go to **File → Export VMD…**. The browser prompts you to save a `.vmd` file to your computer.
+
+    <Warning>
+      Reze Studio has **no server-side save**. If you close the tab or refresh the page before exporting, your edits are lost. Export early and export often. The editor shows an "unsaved changes" warning in the browser tab title and when you attempt to close, but it is your responsibility to export before navigating away.
+    </Warning>
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## Your First Edit in 60 Seconds
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+Already familiar with keyframe editors and just want the fastest path to a working edit? Here it is:
+
+1. Open [reze.studio](https://reze.studio) — the bundled model and clip load automatically.
+2. Double-click the character's arm in the viewport to pick the arm bone.
+3. Drag the playhead to any frame between two existing keyframes.
+4. Drag the **Rot.Y** slider in the Properties Inspector to rotate the arm.
+5. Release — the keyframe is committed and appears as a diamond in the dopesheet.
+6. Press **Space** to play back and see the motion.
+7. Go to **File → Export VMD…** to save your clip.
+
+Total time: under 60 seconds.
+
+<Tip>
+  **Space bar** toggles play and pause from anywhere in the editor — you do not need to click the transport controls. Use **← / →** to step one frame at a time, and **Home / End** to jump to the first or last frame of the clip.
 </Tip>
+
+## Keyboard Shortcuts Reference
+
+| Key | Action |
+|---|---|
+| `Space` | Play / pause |
+| `←` / `→` | Step one frame back / forward |
+| `Home` | Jump to first frame |
+| `End` | Jump to last frame |
+| `Ctrl/⌘ + Z` | Undo last edit |
+| `Ctrl/⌘ + Shift + Z` or `⌘ + Y` | Redo |
+| `Shift + scroll wheel` | Zoom the value (Y) axis in the curve editor |
+| `Ctrl/⌘ + scroll wheel` | Zoom the time (X) axis |

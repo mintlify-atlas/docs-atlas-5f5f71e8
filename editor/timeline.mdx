@@ -1,0 +1,126 @@
+---
+title: "Timeline and Dopesheet: Keyframe Navigation and Editing"
+sidebarTitle: "Timeline"
+description: "Master Reze Studio's timeline panel — scrub the playhead, manage keyframes in the dopesheet, and switch to the per-channel Bézier curve editor."
+---
+
+The timeline panel sits at the bottom of the Reze Studio layout and offers two complementary views of your animation data: a **dopesheet** strip that shows every keyframe as a draggable diamond, and a **per-channel Bézier curve editor** that exposes the easing shape between any two keys. Both views share the same canvas and toolbar — you switch between them using the channel-tab buttons in the toolbar, not a separate mode toggle. Use the dopesheet when you want to see the big picture of which frames have keys and when they land; switch to a curve tab when you need to sculpt the feel of the motion between two specific keyframes.
+
+## Timeline Constants
+
+The following constants govern the layout and zoom limits of the timeline canvas:
+
+```ts
+const DOPE_H = 34       // height of the dopesheet strip in CSS pixels
+const RULER_H = 17      // height of the time ruler in CSS pixels
+const MIN_PX = 0.5      // minimum pixels per frame (most zoomed out)
+const MAX_PX = 40       // maximum pixels per frame (most zoomed in)
+const Y_ZOOM_MIN = 0.5  // minimum value-axis zoom multiplier
+const Y_ZOOM_MAX = 8    // maximum value-axis zoom multiplier
+```
+
+The initial pixels-per-frame value is auto-calculated to fit the entire clip into the visible track width, clamped between `MIN_PX` and `MAX_PX`.
+
+## Playhead Scrubbing
+
+The playhead — a red vertical line with a triangular handle at the top — represents the current frame. You can move it in several ways:
+
+<Steps>
+  <Step title="Drag on the canvas">
+    Click and drag anywhere on the timeline canvas (ruler or curve area) to scrub the playhead. Playback stops automatically when you begin dragging.
+  </Step>
+  <Step title="Arrow keys">
+    With focus outside the frame-number input, press `←` or `→` to step the playhead one frame backward or forward. Hold the key to step continuously.
+  </Step>
+  <Step title="Home / End">
+    Press `Home` to jump to frame 0. Press `End` to jump to the last frame of the clip (`clip.frameCount`).
+  </Step>
+  <Step title="Transport slider">
+    Drag the compact scrub thumb in the toolbar (between the step buttons and the frame counter) for a coarser, mouse-friendly scrub.
+  </Step>
+</Steps>
+
+The playhead is rendered imperatively via a `playheadDrawRef` handle during 60 Hz playback — it bypasses React reconciliation entirely, so the rest of the UI remains responsive at full frame rate.
+
+## Dopesheet
+
+The dopesheet strip occupies the bottom `34 px` (`DOPE_H`) of the timeline canvas. It shows all keyframes for the currently selected bone or morph as rotated-square diamond shapes. When no bone or morph is selected it shows an aggregated view across all visible bones.
+
+<CardGroup cols={2}>
+  <Card title="Selecting keyframes" icon="cursor-arrow-rays">
+    Click a diamond to select that keyframe. Hold `Shift` (or any modifier that maps to the multi-select path) and click to add to the selection. Selected diamonds turn blue.
+  </Card>
+  <Card title="Retiming keyframes" icon="arrows-left-right">
+    Drag a selected diamond left or right to move its frame number. During the drag the keyframe is mutated in place and the canvas repaints imperatively — no React state is touched until you release, at which point a single `commit()` lands in the undo/redo stack.
+  </Card>
+</CardGroup>
+
+Diamond size reflects keyframe density when no single bone is selected: diamonds for frames shared by multiple bones are slightly larger than those belonging to only one bone.
+
+## Curve Editor
+
+Clicking any of the channel tabs in the toolbar switches the upper portion of the canvas from the neutral background to a full Bézier curve editor for that channel (or group of channels).
+
+| Tab label | Channels shown |
+|---|---|
+| All Rot | rotX, rotY, rotZ (all three together) |
+| X (under Rot) | rotX only |
+| Y (under Rot) | rotY only |
+| Z (under Rot) | rotZ only |
+| All Trans | tX, tY, tZ (all three together) |
+| X (under Trans) | tX only |
+| Y (under Trans) | tY only |
+| Z (under Trans) | tZ only |
+| Morph | selected morph weight curve |
+
+Each channel is drawn in its own colour (matching the channel definitions in `lib/animation.ts`) and plotted as a cubic Bézier curve between consecutive keyframes. Rotation channels default to a ±90° Y-axis range; translation channels default to ±10 units. The value axis auto-labels at `step` intervals (every 30° for rotation, every 5 units for translation).
+
+In the curve editor you can:
+
+- **Drag a keyframe dot** to change its frame position and value simultaneously.
+- **Read per-channel values** from the live readout in the top-right corner of the canvas (e.g. `Rot.X: 12.3°`), which updates every frame during playback.
+
+<Note>
+  The curve editor shows "Select a bone to view curves" when no bone is selected, and "No keyframes — [bone name]" when the selected bone has no data on the active track. Switch to the **Dopesheet** view (any "All" tab with no bone selected) to see the aggregate key distribution across all bones.
+</Note>
+
+## Zoom Controls
+
+The timeline supports independent zoom of the time (X) axis and the value (Y) axis.
+
+| Gesture | Effect |
+|---|---|
+| `Ctrl` / `⌘` + mouse wheel | Zoom the time axis in/out (pixels per frame) |
+| `Shift` + mouse wheel | Zoom the value axis in/out (visible value range) |
+| Plain mouse wheel | Horizontal scroll |
+| Drag the **Time** zoom ruler in the toolbar | Continuously adjust pixels per frame |
+| Drag the **Value** zoom ruler in the toolbar | Continuously adjust Y zoom |
+| Click the `+` / `−` buttons beside either ruler | Step zoom in or out |
+
+On macOS, `Shift` + scroll remaps the vertical delta onto the horizontal delta. The wheel handler accounts for this by taking whichever of `deltaY` or `deltaX` is non-zero.
+
+<Tip>
+  If the animation looks "flat" in the curve editor (all curves squashed near the zero line), increase the **Value** zoom. For dense clips where dozens of keyframes are packed together, increase the **Time** zoom to spread them out.
+</Tip>
+
+## Transport Controls
+
+The toolbar at the top of the timeline panel contains the full set of transport controls:
+
+<CardGroup cols={3}>
+  <Card title="Jump to first / last" icon="chevrons-left">
+    The `⏮` and `⏭` buttons (or `Home` / `End` keys) jump the playhead to frame 0 and `clip.frameCount` respectively.
+  </Card>
+  <Card title="Step backward / forward" icon="chevron-right">
+    The `◀` and `▶` buttons (or `←` / `→` keys) move the playhead one frame at a time. Useful for frame-by-frame inspection of a specific pose.
+  </Card>
+  <Card title="Play / pause" icon="play">
+    The `▶` / `⏸` button (or `Space`) starts and stops playback. Pressing play while at the last frame automatically rewinds to frame 0 before playing.
+  </Card>
+</CardGroup>
+
+To the right of the step buttons, the **frame counter** displays the current frame and total frame count in the format `F XXXX / XXXX`. Both numbers are editable inputs: click the current-frame number to type a frame directly, or click the total-frame number to resize the clip.
+
+<Tip>
+  Arrow key behaviour is context-sensitive. When the **frame-number input** has focus, `←` and `→` decrement and increment the frame number directly inside the input field. When focus is elsewhere in the editor, the same keys step the playhead. Press `Tab` or click outside the input to return focus to the editor.
+</Tip>

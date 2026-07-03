@@ -1,0 +1,107 @@
+---
+title: "Reze Studio Tech Stack: Engine, Framework, and Dependencies"
+sidebarTitle: "Tech Stack"
+description: "Overview of every major dependency in Reze Studio — reze-engine, Next.js, React 19, shadcn/ui, Tailwind, and WebGPU."
+---
+
+Every technology choice in Reze Studio is optimized for one goal: a timeline editor that feels native in a browser tab. The engine layer (reze-engine) handles GPU rendering, physics simulation, and IK entirely off the main thread via WebGPU. The framework layer (Next.js 16 + React 19) provides the declarative shell, while a set of carefully chosen hot-path bypasses keep React out of the 60Hz render loop entirely. The UI layer (shadcn/ui + Tailwind CSS v4) delivers accessible, composable primitives without introducing a heavyweight component runtime.
+
+## reze-engine
+
+[reze-engine](https://github.com/AmyangXYZ/reze-engine) (v0.15) is the custom runtime that powers everything inside the WebGPU canvas. It is not a wrapper around an existing engine — it is a ground-up TypeScript implementation of:
+
+- **WebGPU renderer** — a modern GPU pipeline with support for MMD-style NPR shading, bloom post-processing, and a configurable ground plane.
+- **Bullet physics port** — a TypeScript translation of Bullet Physics for rigid-body simulation of skirts, hair, and other secondary motion attached to PMX models.
+- **IK solver** — a full implementation of the VMD IK specification so foot-contact and eye-target bones drive correctly during playback.
+- **VMD import/export** — binary `.vmd` parsing and serialization including bone keyframes, morph keyframes, and the 128-point Bézier interpolation format.
+- **PMX loader** — complete PMX model parsing including skeleton, morphs, materials, and texture coordinates.
+
+The engine is consumed as an npm package (`reze-engine@^0.15.1`) and exposes a TypeScript API around an `Engine` class and a `Model` class. `EngineBridge` in Reze Studio holds the only live `Engine` reference and wires it to React state via `useEffect`.
+
+<CardGroup cols={2}>
+  <Card title="reze-engine on GitHub" icon="github" href="https://github.com/AmyangXYZ/reze-engine">
+    Source, changelog, and API reference for the engine powering Reze Studio.
+  </Card>
+  <Card title="Reze Studio Live" icon="globe" href="https://reze.studio">
+    Try the editor in your browser — no install required.
+  </Card>
+</CardGroup>
+
+## Next.js and React
+
+Reze Studio runs on **Next.js 16** (package version `^16.1.6`) with the App Router. The entire application is a single route (`app/page.tsx`) that mounts the provider tree and `<StudioPage>`. There is no server-side data fetching — PMX models and VMD animations are loaded client-side from `public/` or from user-supplied files via the browser's File API.
+
+**React 19** (`19.2.3`) is used throughout. Every interactive component is marked `"use client"` at the top of the file. The `useSyncExternalStore` hook (stable since React 18) is the backbone of the external store pattern — see the [Architecture](/reference/architecture) page for details.
+
+`reactStrictMode` is set to `false` in `next.config.ts` to avoid double-invoking engine initialization effects during development:
+
+```typescript
+const nextConfig: NextConfig = {
+  reactStrictMode: false,
+  devIndicators: false,
+}
+```
+
+## UI Layer
+
+The component library is **shadcn/ui** (devDependency `shadcn@^3.8.4`), which generates unstyled Radix UI primitives into `components/ui/` and styles them with Tailwind. The following shadcn/ui components are used across the studio:
+
+- `Button` — file menu actions, load/export triggers
+- `Menubar` / `MenubarMenu` / `MenubarContent` / `MenubarItem` — the File, Help, and Settings menus in the left panel
+- `Tabs` / `TabsList` / `TabsTrigger` / `TabsContent` — right-panel Properties vs Materials split, and timeline Dopesheet vs Curve Editor split
+- `Slider` — rotation and translation sliders in the Properties Inspector
+- `Input` — direct numeric entry for bone rotations, translations, and the frame counter
+
+**Tailwind CSS v4** (`tailwindcss@^4`) provides the utility classes that shadcn/ui components build on. The `tw-animate-css` plugin (`^1.4.0`) adds animation utilities used in overlay transitions. Class merging is handled by `clsx` + `tailwind-merge` via a `cn()` helper in `lib/utils.ts`:
+
+```typescript
+import { clsx, type ClassValue } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+```
+
+**Radix UI** (`radix-ui@^1.4.3`) supplies the accessibility primitives that shadcn/ui components sit on top of — focus management, keyboard navigation, and ARIA attributes for menus, tabs, and dialogs are all handled by Radix.
+
+## WebGPU
+
+WebGPU is the graphics API that reze-engine uses for all rendering and GPU compute. It was chosen over WebGL for several reasons:
+
+- **Modern pipeline** — explicit resource binding, pipeline state objects, and a compute shader stage that matches how contemporary GPUs are designed.
+- **Performance** — lower CPU overhead per draw call compared to WebGL, and no driver state machine to fight with.
+- **GPU compute** — physics constraints and skinning can run in compute shaders, freeing the CPU for JS logic.
+
+WebGPU is currently available in Chrome 113+, Edge 113+, and Safari 18+ (Technology Preview and recent stable releases). Firefox support is in progress behind a flag.
+
+<Note>
+  Reze Studio requires a WebGPU-capable browser. If you open the app in a browser that does not support WebGPU, the viewport will display an error message and no model will load. Use Chrome 113 or later, Edge 113 or later, or Safari 18+ for the best experience.
+</Note>
+
+## Dependencies
+
+The following table lists every production dependency declared in `package.json`:
+
+| Dependency | Version | Purpose |
+|---|---|---|
+| `next` | `^16.1.6` | App Router framework, dev server, build pipeline |
+| `react` | `19.2.3` | UI runtime, `useSyncExternalStore`, hooks |
+| `react-dom` | `19.2.3` | DOM renderer for React 19 |
+| `reze-engine` | `^0.15.1` | WebGPU renderer, physics, IK, VMD/PMX I/O |
+| `lucide-react` | `^0.563.0` | Icon set (FilePlus2, FolderOpen, FileMusic, FileDown, etc.) |
+| `radix-ui` | `^1.4.3` | Accessible Radix UI primitives (menus, tabs, sliders) |
+| `class-variance-authority` | `^0.7.1` | Variant-based className composition for shadcn/ui |
+| `clsx` | `^2.1.1` | Conditional className builder |
+| `tailwind-merge` | `^3.4.0` | Tailwind class deduplication |
+| `@vercel/analytics` | `^1.6.1` | Page-view analytics (injected in `app/layout.tsx`) |
+
+## TypeScript
+
+The entire codebase is strict TypeScript 5 (`typescript@^5`). All context files, component files, and library modules are typed end-to-end — there are no `any` escapes in production paths. Engine types (`AnimationClip`, `BoneKeyframe`, `MorphKeyframe`, `GizmoDragEvent`, etc.) are imported directly from `reze-engine`'s type declarations.
+
+Notable typing patterns used throughout the studio:
+
+- `SetStateAction<T>` and `Dispatch<SetStateAction<T>>` from React are used for action signatures so consumers can pass either a direct value or an updater function.
+- `RefObject<T>` is used for shared refs (e.g. `currentFrameRef`, `playheadDrawRef`) to communicate that the ref identity is stable but the value is mutable.
+- `ReadonlySet<string>` is used for bone and morph name sets to prevent accidental mutation.

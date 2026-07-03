@@ -1,0 +1,106 @@
+---
+title: "VMD Import and Export: Working with Animation Clips"
+sidebarTitle: "VMD Files"
+description: "Import existing VMD animation files into Reze Studio, start new clips from scratch, and export your work back to VMD format for use in MMD."
+---
+
+VMD (Vocaloid Motion Data) is the standard animation format for MikuMikuDance and compatible renderers. A `.vmd` file stores a list of keyframes per bone and per morph — frame number, rotation quaternion, translation vector, and Bézier interpolation handles for each key. Reze Studio reads and writes this format natively: you can import an existing clip from any MMD-compatible tool, hand-key or refine it in the timeline and curve editor, and export it back to a `.vmd` that any MMD renderer will accept. Nothing is sent to a server — all file I/O happens entirely inside your browser.
+
+## Loading a VMD file
+
+<Steps>
+  <Step title="Open the File menu">
+    Click **File** in the top-left menu bar, then select **Load VMD…**. This option is disabled until the engine has finished initializing and a model is loaded.
+  </Step>
+  <Step title="Pick a VMD file">
+    Your browser's file-picker opens filtered to `.vmd` files. Select the file you want to import.
+  </Step>
+  <Step title="Clip loads into the timeline">
+    The engine parses the VMD, and all bone and morph tracks appear in the dopesheet immediately. The playhead resets to frame 0 and any previous animation is replaced. The undo/redo history is **not** cleared — the load is treated as an external replacement and does not go on the history stack.
+  </Step>
+  <Step title="Clip name is set from the filename">
+    The clip's display name (shown in the status bar and used as the export filename) is derived from the filename without its extension using `fileStem()`. A file named `my_dance.vmd` becomes the clip name `my_dance`.
+  </Step>
+</Steps>
+
+<Note>
+  The clip display name is extracted with `fileStem()`, which strips the directory path and extension and trims whitespace. If the result is empty (e.g. a file named `.vmd`), the name falls back to `"clip"`.
+</Note>
+
+## Starting a new clip
+
+If you want to key an animation from scratch rather than editing an existing VMD, use **File → New** to reset the timeline to a blank state.
+
+<Steps>
+  <Step title="Open the File menu">
+    Click **File** in the menu bar, then select **New**. This option is disabled until the engine is ready.
+  </Step>
+  <Step title="Timeline resets">
+    All bone and morph tracks are removed. A blank clip is created with a default length of **120 frames** (4 seconds at 30 fps), as defined by `DEFAULT_STUDIO_CLIP_FRAMES` in `lib/utils.ts`. The playhead moves to frame 0.
+  </Step>
+  <Step title="Undo/redo history clears">
+    The undo/redo stack is reset along with the clip so history entries from the previous session do not bleed into your new work.
+  </Step>
+  <Step title="Clip name resets">
+    The clip display name resets to `"clip"`. Rename it before exporting if you want a meaningful filename.
+  </Step>
+</Steps>
+
+<Tip>
+  You can start a new clip on any loaded model. The bone list and morph list stay exactly as they are — only the animation data clears. Begin by scrubbing to the frame you want, selecting a bone, posing it with the inspector sliders or the viewport gizmo, and a keyframe is inserted automatically.
+</Tip>
+
+## Exporting to VMD
+
+When you are ready to save your work, export it as a `.vmd` file that any MMD-compatible renderer can open.
+
+<Steps>
+  <Step title="Open the File menu">
+    Click **File**, then select **Export VMD…**. This option is disabled when there is no loaded clip.
+  </Step>
+  <Step title="File downloads automatically">
+    The engine serializes the current clip to VMD binary format and your browser downloads the file as `<clip-name>-export.vmd`. For example, a clip named `my_dance` produces `my_dance-export.vmd`.
+  </Step>
+</Steps>
+
+<Warning>
+  Reze Studio has **no server and no auto-save**. Your clip exists only in browser memory. If you close the tab, reload the page, or your browser crashes, any unexported work is lost permanently. Export early and export often.
+</Warning>
+
+### Unsaved-change warning
+
+Reze Studio tracks whether your clip has unsaved changes. If you try to close or reload the tab while there are edits that have not been exported, the browser will show its standard "Leave site? Changes you made may not be saved" confirmation dialog. This uses the browser's `beforeunload` event — it fires for tab close, window close, and page refresh, but not for navigation within the same tab.
+
+The dirty flag clears automatically after a successful export. Loading a VMD file or clicking **New** also clears it because those operations replace the clip entirely with a known state.
+
+## The bundled sample clip
+
+When Reze Studio opens for the first time in a session, it automatically loads a sample animation alongside the default model so you can see the editor in action without any setup. The sample clip is fetched from:
+
+```
+/animations/miku.vmd
+```
+
+This path is defined as `VMD_PATH` in `engine-bridge.tsx`. The clip name is set by passing `VMD_PATH` through `fileStem()`, which extracts `miku` as the display name. If the file is not found (e.g. in a local development build without the asset), the engine logs a warning and starts with an empty timeline instead.
+
+<Info>
+  The sample clip is loaded with `suppressClipDirtyRef` set so that the initial load does not trigger the unsaved-change warning. Opening the tab fresh and immediately closing it will not prompt you to stay.
+</Info>
+
+## Track retention on model swap
+
+When you [load a new PMX model](/files/loading-models) while a clip is active, Reze Studio does not discard your animation outright. It runs a retention pass that:
+
+- **Keeps** tracks for bones and morphs that exist on the new model by name.
+- **Silently drops** tracks for bones and morphs that do not exist on the new model.
+
+The retained clip is loaded onto the new model immediately. If the new model shares bone and morph naming conventions with the original (standard Japanese MMD names such as `上半身`, `左腕`, `右腕`, etc.), most or all of your animation data will survive the swap intact.
+
+<CardGroup cols={2}>
+  <Card title="Bones retained" icon="check">
+    Any bone track whose bone name is present in the new model's skeleton is kept with all its keyframes and Bézier handles unchanged.
+  </Card>
+  <Card title="Bones discarded" icon="xmark">
+    Any bone track whose bone name does not appear in the new skeleton is removed. There is no warning — check the bone list after swapping to verify coverage.
+  </Card>
+</CardGroup>

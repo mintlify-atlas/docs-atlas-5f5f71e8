@@ -1,0 +1,110 @@
+---
+title: "Posing Bones: Rotation, Translation, and the 3D Gizmo"
+sidebarTitle: "Posing Bones"
+description: "Learn three ways to pose bones in Reze Studio — the rotation/translation sliders, direct numeric input, and the 3D viewport gizmo."
+---
+
+Reze Studio gives you three complementary ways to pose a bone: the **rotation and translation sliders** in the Properties Inspector for precise, axis-locked adjustments; **direct numeric input** by clicking a slider's value field and typing a number; and the **3D viewport gizmo** — coloured rings and axes that let you sculpt the pose spatially with your mouse. Each path writes to the same keyframe at the current playhead frame, so you can mix and match mid-pose without losing anything.
+
+## Selecting a Bone
+
+Before you can pose anything you need to tell the studio which bone to work with. There are three equivalent ways to make that selection.
+
+<Steps>
+  <Step title="Bone list (left panel)">
+    Click any bone name in the **Bones** tab of the left panel. The entry highlights in blue, the Properties Inspector on the right populates with that bone's sliders and keyframe list, and the 3D gizmo appears at the bone's pivot in the viewport.
+  </Step>
+  <Step title="Dopesheet row">
+    Click a bone's label in the dopesheet rows at the bottom of the screen. The selection synchronises with the left panel and inspector automatically.
+  </Step>
+  <Step title="Double-click in the viewport">
+    Double-click directly on a bone or mesh in the 3D viewport. Reze Studio hit-tests against the rendered skeleton and selects the nearest bone, scrolling the left-panel list to that entry.
+  </Step>
+</Steps>
+
+<Tip>
+  If the gizmo disappears (for example after double-clicking an empty area of the viewport to dismiss it), click the bone again in the left panel — even if it is already highlighted — to bring the gizmo back. Any `setSelectedBone` call unconditionally re-shows the gizmo.
+</Tip>
+
+## Using the Sliders in the Properties Inspector
+
+With a bone selected the Properties Inspector shows two slider groups: **Rotation (°)** and **Translation**.
+
+### Rotation
+
+Rotation values are stored internally as quaternions (`Quat`) and displayed in **Euler YXZ order in degrees** — the same convention MMD uses. The three channels are:
+
+| Channel | Label  | Color     |
+| ------- | ------ | --------- |
+| `rx`    | Rot.X  | `#e25555` |
+| `ry`    | Rot.Y  | `#44bb55` |
+| `rz`    | Rot.Z  | `#4477dd` |
+
+Each slider row shows a coloured axis label, the current degree value, and a drag track. The range spans **−180 ° to +180 °**.
+
+### Translation
+
+Translation moves the bone's root along its local axes in MMD world units. The range displayed in the inspector spans **−10 to +10** by default.
+
+| Channel | Label    | Color     |
+| ------- | -------- | --------- |
+| `tx`    | Trans.X  | `#e2a055` |
+| `ty`    | Trans.Y  | `#55bba0` |
+| `tz`    | Trans.Z  | `#7755dd` |
+
+### Preview vs. Commit
+
+Reze Studio separates *preview* from *commit* to keep both the undo stack and the viewport performant:
+
+- **Preview (drag in progress):** Every pixel of slider movement mutates the live keyframe object in place and pushes the update straight to the WebGPU renderer. No React re-render, no undo entry, no engine reload.
+- **Commit (pointer released):** The studio calls `commit()` exactly once, which deep-clones the modified clip, pushes the previous snapshot onto the undo stack, and signals the engine to re-upload the clip. This single commit is what you see as one step in the undo history.
+
+## Direct Numeric Input
+
+Every slider row shows its current value as a number beside the drag track. Click that value field to enter edit mode — the field becomes an `<input>` — then type the exact number you need and press **Enter** or click away to confirm. The same preview/commit split applies: the value is previewed as you type and committed when the field blurs.
+
+## 3D Viewport Gizmo
+
+When a bone is selected a **rings-and-axes gizmo** appears at the bone's world position:
+
+<CardGroup cols={2}>
+  <Card title="Rotation rings" icon="rotate-right">
+    Three concentric arcs coloured to match the channel table above. **Red** controls Rot.X, **green** controls Rot.Y, **blue** controls Rot.Z. Drag an arc to rotate the bone around that axis; the corresponding slider in the inspector tracks the value in real time.
+  </Card>
+  <Card title="Translation axes" icon="arrows-up-down-left-right">
+    Three arrow handles extending from the gizmo origin, coloured orange (X), teal (Y), and purple (Z). Drag an arrow to slide the bone along that axis.
+  </Card>
+</CardGroup>
+
+Each gizmo drag gesture maps to a single keyframe edit at the current frame, following the same preview/commit model as the sliders — one undo step per drag release, no intermediate history entries.
+
+## Auto-Keyframe Insertion
+
+You do not need to insert a keyframe before posing. If the playhead is at a frame that has **no existing keyframe** for the selected bone, Reze Studio inserts one automatically on the first slider move or gizmo drag:
+
+1. The engine is seeked to the current frame to read the interpolated pose at that moment.
+2. A new `BoneKeyframe` is created with that pose as the starting value.
+3. The user's edit (rotation or translation change) is applied on top.
+4. On pointer release the new keyframe is committed to the clip.
+
+If a keyframe *already exists* at that frame, it is updated in place.
+
+## Bone Groups
+
+Typical PMX models contain dozens of bones. To reduce visual noise the left panel's bone list can be filtered by **group**. Reze Studio ships the following built-in groups, defined in `lib/animation.ts`:
+
+| Group       | Typical bones                                                   |
+| ----------- | --------------------------------------------------------------- |
+| All Bones   | Every bone in the loaded model (no filter)                      |
+| Upper Body  | 頭, 首, 上半身, 上半身2, 胸, 首根元, 腰                         |
+| Left Arm    | 左肩, 左腕, 左ひじ, 左手首, and twist/P variants               |
+| Right Arm   | 右肩, 右腕, 右ひじ, 右手首, and twist/P variants               |
+| Left Hand   | 左手首 plus all left finger bones (thumb through pinky)         |
+| Right Hand  | 右手首 plus all right finger bones (thumb through pinky)        |
+| Lower Body  | 下半身, legs, knees, ankles, toes, センター, グルーブ, IK bones |
+
+Select a group from the dropdown at the top of the bone list to show only that subset. The **All Bones** entry always shows the full, unfiltered list.
+
+<Tip>
+  Use the **viewport gizmo** when you want organic, spatially-intuitive motion — for example, arc-ing an arm through 3D space or nudging a hip offset. Switch to the **sliders** (or direct numeric input) when you need a precise degree value, such as locking a wrist exactly at 0 ° or matching values symmetrically between left and right sides.
+</Tip>

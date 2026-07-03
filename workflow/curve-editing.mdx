@@ -1,0 +1,148 @@
+---
+title: "Bézier Curve Editing: Per-Channel Interpolation in Reze Studio"
+sidebarTitle: "Curve Editing"
+description: "Shape the motion between keyframes using per-channel Bézier curves for rotation and translation — the core of expressive MMD animation."
+---
+
+Linear interpolation between two keyframes gives motion that starts and stops at the same speed — correct, but mechanical. Real movement accelerates into a pose and decelerates out of it, overshoots, settles. Reze Studio's per-channel Bézier editor lets you sculpt that timing independently for each of the six bone channels (three rotation axes, three translation axes), which means a wrist can snap into a frame fast while the shoulder eases in gently, all on the same keyframe pair.
+
+## The Six Channels
+
+Each `BoneKeyframe` carries four independent Bézier curves stored as two control points in **0–127 space**: one curve shared across all rotation axes (the VMD convention is to use a single rotation slerp-t curve), and three separate curves for the X, Y, and Z translation axes.
+
+The timeline curve editor and the Properties Inspector use colour coding to distinguish channels at a glance:
+
+| Key  | Label    | Color     | Group       |
+| ---- | -------- | --------- | ----------- |
+| `rx` | Rot.X    | `#e25555` | Rotation    |
+| `ry` | Rot.Y    | `#44bb55` | Rotation    |
+| `rz` | Rot.Z    | `#4477dd` | Rotation    |
+| `tx` | Trans.X  | `#e2a055` | Translation |
+| `ty` | Trans.Y  | `#55bba0` | Translation |
+| `tz` | Trans.Z  | `#7755dd` | Translation |
+
+These colours match the axis sliders in the Properties Inspector and the curve lines drawn in the timeline canvas.
+
+## Switching to the Curve Editor Tab
+
+The timeline panel at the bottom of the screen has a tab bar above the canvas. Click any of the curve tabs to switch from the dopesheet diamond view to the per-channel curve view:
+
+| Tab       | Shows                                          |
+| --------- | ---------------------------------------------- |
+| All Rot   | All three rotation curves overlaid             |
+| X / Y / Z (rot section) | A single rotation axis curve          |
+| All Trans | All three translation curves overlaid          |
+| X / Y / Z (tra section) | A single translation axis curve       |
+| Morph     | The morph weight curve for the selected morph  |
+
+Selecting a slider in the Properties Inspector and dragging it automatically switches the timeline to the matching channel tab — for example, dragging the Rot.X slider switches the tab to `rx`.
+
+## Reading the Curve
+
+In the curve editor view:
+
+- The **horizontal axis** is time in frames, scrolling and zooming with the rest of the timeline.
+- The **vertical axis** is the channel value (degrees for rotation, MMD units for translation, 0–1 for morphs).
+- Each keyframe has a **dot** on the curve at the exact stored value.
+- The smooth line between dots is the interpolated result evaluated at every integer frame using the stored Bézier handles.
+
+Zoom the value (Y) axis with `Shift + scroll` to spread out the vertical range and make small handle adjustments easier to see.
+
+## Dragging Bézier Handles
+
+The interpolation curves for the currently-active keyframe are also editable in the **Interpolation** section at the bottom of the Properties Inspector (visible when a bone is selected and the playhead is on or past a keyframe).
+
+The miniature curve editor widget shows a **160×160 canvas** in VMD 127×127 space:
+
+- **cp0 (red square)** — the ease-out handle of the current keyframe (controls how the motion leaves this key). It is anchored to the bottom-left corner `(0, 0)` and its control arm points toward `p1`.
+- **cp1 (green square)** — the ease-in handle of the next keyframe (controls how the motion arrives at that key). It is anchored to the top-right corner `(127, 127)` and its control arm points toward `p2`.
+
+Drag either square to adjust the curve. The canvas redraws imperatively on every pointer-move for a smooth feel, and a `commit()` fires on pointer-up so each drag is one undo step.
+
+The channel being edited is selected via the four tabs directly above the curve editor widget:
+
+- **Rotation** — the shared rotation slerp-t curve
+- **Trans X**, **Trans Y**, **Trans Z** — per-axis translation curves
+
+## The `bezierY` Algorithm
+
+Reze Studio uses a standard VMD-compatible cubic Bézier evaluator. Given a parameter `t ∈ [0, 1]` representing fractional progress through the frame span, it finds the Bézier curve's *y* output by:
+
+1. Normalising the control-point coordinates from 0–127 space to 0–1: `x1 = cp0.x / 127`, etc.
+2. Running a **15-iteration binary search** to find the parameter `mid` where the cubic's x-component equals `t`.
+3. Evaluating the cubic's y-component at that `mid`.
+
+```typescript
+function bezierY(
+  cp0: { x: number; y: number },
+  cp1: { x: number; y: number },
+  t: number
+): number {
+  const x1 = cp0.x / 127, y1 = cp0.y / 127
+  const x2 = cp1.x / 127, y2 = cp1.y / 127
+  let lo = 0, hi = 1, mid = 0.5
+  for (let i = 0; i < 15; i++) {
+    const x = 3 * (1 - mid) ** 2 * mid * x1
+            + 3 * (1 - mid) * mid ** 2 * x2
+            + mid ** 3
+    if (Math.abs(x - t) < 0.0001) break
+    if (x < t) lo = mid
+    else hi = mid
+    mid = (lo + hi) / 2
+  }
+  return 3 * (1 - mid) ** 2 * mid * y1
+       + 3 * (1 - mid) * mid ** 2 * y2
+       + mid ** 3
+}
+```
+
+The result is the interpolation factor applied to the value range between the two keyframes. Because x and y are independent, you can create asymmetric easing: the curve's x-axis controls *when* the motion happens in time, while its y-axis controls *how much* of the value range has been covered.
+
+## Common Easing Patterns
+
+Reze Studio ships a set of one-click presets in the Properties Inspector panel beside the curve editor widget:
+
+| Preset    | cp0 (p1)          | cp1 (p2)          | Description                                           |
+| --------- | ----------------- | ----------------- | ----------------------------------------------------- |
+| Linear    | `(20, 20)`        | `(107, 107)`      | Constant speed — diagonal line from corner to corner  |
+| In        | `(64, 0)`         | `(107, 107)`      | Starts slow, accelerates — ease-in from bottom-left   |
+| Out       | `(20, 20)`        | `(64, 127)`       | Starts fast, decelerates — ease-out into top-right    |
+| InOut     | `(64, 0)`         | `(64, 127)`       | Slow start and end, fast middle — S-curve             |
+| Slow In   | `(100, 0)`        | `(107, 107)`      | Very gradual ramp-up, then full speed                 |
+| Slow Out  | `(20, 20)`        | `(27, 127)`       | Full speed into the key, then a long deceleration     |
+| Slow IO   | `(100, 0)`        | `(27, 127)`       | Extreme S-curve — maximum hang time at both ends      |
+| Over      | `(0, 127)`        | `(127, 0)`        | Overshoot — value exceeds target then settles back    |
+
+Click a preset button to apply it immediately. The active preset is highlighted; if your handles don't match any preset exactly, all buttons appear in their default state.
+
+## Example: Bounce Effect
+
+A bounce effect requires the value to accelerate down, decelerate briefly at the floor (impact), then ease back up. Using two keyframes — one at the top, one at the bottom of the bounce — set the **Trans.Y** channel handles like this:
+
+**Before (Linear):**
+```text
+cp0 = (20, 20)   — leaves the top key at constant speed
+cp1 = (107, 107) — arrives at the floor at constant speed
+```
+
+**After (bounce impact feel):**
+```text
+cp0 = (20, 20)   — leave the top at moderate speed (gravity builds)
+cp1 = (27, 127)  — arrive at the floor fast then slow abruptly (Slow Out)
+```
+
+For the return keyframe (floor back to top), reverse the easing:
+```text
+cp0 = (100, 0)   — leave the floor slowly (compression rebound)
+cp1 = (107, 107) — arrive at the top at full speed
+```
+
+Combine this with a very short frame span on the floor keyframe (1–2 frames) to sell the snappy impact.
+
+<Tip>
+  Edit **rotation** and **translation** channels independently for more natural motion. A character's arm during a swing might use an ease-in-out on Rot.X but a faster ease-out on Trans.Y so the hand rises quickly at the end even as the rotation is still decelerating. Per-channel Bézier control — not a single curve over everything — is what enables that nuance.
+</Tip>
+
+## Y-Axis Zoom
+
+When many keyframes are clustered close together in value, handles stack up and become hard to grab. Hold **Shift** and scroll the mouse wheel to zoom the vertical (value) axis. The centre of the view stays fixed while the range expands or contracts. The Y-zoom range is `0.5×` to `8×` (`Y_ZOOM_MIN` to `Y_ZOOM_MAX`).

@@ -1,0 +1,167 @@
+---
+title: "Undo and Redo: History Management in Reze Studio"
+sidebarTitle: "Undo / Redo"
+description: "Understand how Reze Studio's 100-step undo/redo history works, what actions are recorded, and how preview-time edits are handled without polluting history."
+---
+
+Reze Studio's undo/redo system is built around a single insight: the studio needs to feel snappy during slider drags and keyframe moves — operations that fire dozens of updates per second — without creating hundreds of micro-entries in the history stack. It solves this with a **commit/snapshot model**: during a drag the live clip is mutated in place for zero-overhead previewing, and only when the gesture ends does the studio take a clean snapshot and push it onto the history stack. The result is one undo step per gesture, regardless of how many intermediate frames were painted.
+
+## Keyboard Shortcuts
+
+| Key                              | Action |
+| -------------------------------- | ------ |
+| `Ctrl` / `⌘` + `Z`              | Undo last committed edit |
+| `Ctrl` / `⌘` + `Shift` + `Z`   | Redo |
+| `⌘` + `Y`                       | Redo (macOS alternate) |
+
+These shortcuts are handled at the document level and work anywhere in the studio as long as a text input does not have focus.
+
+## What Goes on the History Stack
+
+Only **committed edits** are recorded. A committed edit is any operation that calls `commit()` in `context/studio-context.ts`. That includes:
+
+<CardGroup cols={2}>
+  <Card title="Pose changes" icon="hand">
+    Releasing a rotation or translation slider, finishing a viewport gizmo drag — one entry per gesture.
+  </Card>
+  <Card title="Keyframe insert" icon="plus">
+    Pressing the Insert button in the Properties Inspector or completing the first pose change at a frame with no existing keyframe.
+  </Card>
+  <Card title="Keyframe delete" icon="trash">
+    Clicking Delete in the Properties Inspector or pressing the Delete key with a keyframe selected.
+  </Card>
+  <Card title="Keyframe move (retime)" icon="arrows-left-right">
+    Releasing a dragged diamond in the dopesheet — one entry regardless of drag distance.
+  </Card>
+  <Card title="Track Simplify" icon="filter">
+    Running the keyframe-reduction algorithm on the selected bone track.
+  </Card>
+  <Card title="Track Clear" icon="x">
+    Wiping all keyframes from the selected bone track.
+  </Card>
+</CardGroup>
+
+Mid-drag previews — pointer-move events during slider drags, gizmo drags, and dopesheet keyframe drags — are **not** committed and do not create history entries.
+
+## The Commit / Snapshot Model
+
+The core problem the model solves is this: slider preview mutates `BoneKeyframe` objects *in place* for performance (the engine shares the same track arrays). If undo simply kept the previous clip reference, it would point to an object whose values have already been overwritten by the preview. History would contain the current state, not the past state.
+
+The solution is `clipSnapshot` — an immutable deep clone of the clip taken at the **last commit boundary**:
+
+```typescript
+// Simplified from context/studio-context.ts
+type StudioState = {
+  /** The live clip. Preview-time edits mutate keyframe objects inside
+   *  this in place; React sees the same reference during a drag. */
+  clip: AnimationClip | null
+
+  /** Immutable clone taken at the last commit / undo / redo.
+   *  This is what gets pushed onto `past` — never the mutated `clip`. */
+  clipSnapshot: AnimationClip | null
+
+  /** Previously committed states, oldest first. */
+  past: AnimationClip[]
+
+  /** States that were undone and can be redone, most-recent first. */
+  future: AnimationClip[]
+}
+```
+
+When `commit()` is called:
+
+1. The incoming clip is finalised (frame count is extended if needed).
+2. A deep clone of the finalised clip is stored as the new `clipSnapshot`.
+3. The **previous** `clipSnapshot` (the state before this edit) is pushed onto `past`.
+4. `future` is cleared — committing a new edit discards any redo history.
+
+When `undo()` is called:
+
+1. The last entry is popped from `past`.
+2. The current `clipSnapshot` is prepended to `future`.
+3. The popped snapshot is deep-cloned and set as the live `clip`, and stored as the new `clipSnapshot`.
+
+This means the live `clip` can be freely mutated during the next preview session without corrupting any history entry.
+
+## History Limit
+
+```typescript
+const HISTORY_LIMIT = 100
+```
+
+The `past` array is capped at **100 entries**. When the 101st commit arrives, the oldest entry (`past[0]`) is dropped:
+
+```typescript
+// From studio-context.ts — pushPast helper
+const pushPast = (
+  past: AnimationClip[],
+  snap: AnimationClip | null,
+): AnimationClip[] => {
+  if (snap == null) return past
+  const next =
+    past.length >= HISTORY_LIMIT
+      ? past.slice(past.length - HISTORY_LIMIT + 1)
+      : past.slice()
+  next.push(snap)
+  return next
+}
+```
+
+Once history is full, every new commit silently drops the oldest entry. There is no warning when this happens. For long editing sessions, export a VMD periodically as a manual checkpoint.
+
+## What Does NOT Go on the Stack
+
+<Warning>
+  The following operations call `replaceClip()` instead of `commit()`. `replaceClip()` sets `past: []` and `future: []`, **completely clearing the undo/redo history**. They cannot be undone.
+
+  - `File → Load VMD…` — loads a new animation clip from disk
+  - `File → Load PMX folder…` — loads a new model (also resets the clip)
+  - `File → New` — clears the timeline and starts from scratch
+
+  Export your work with `File → Export VMD…` **before** performing any of these operations if you want to preserve your editing history.
+</Warning>
+
+The rationale: VMD and PMX loads swap out the entire document and model simultaneously. Allowing undo back through a model swap would leave the animation in a state that references bones from a different model — the engine and inspector would desync. Clearing history on load keeps the store consistent.
+
+## The `past` and `future` Arrays in Practice
+
+Here is a walk-through of the state arrays across a typical editing session:
+
+```text
+Initial state
+  past:   []
+  future: []
+  clipSnapshot: <clip A>
+
+After first pose edit (commit):
+  past:   [<clip A>]
+  future: []
+  clipSnapshot: <clip B>
+
+After second pose edit (commit):
+  past:   [<clip A>, <clip B>]
+  future: []
+  clipSnapshot: <clip C>
+
+After Ctrl+Z (undo):
+  past:   [<clip A>]
+  future: [<clip C>]
+  clipSnapshot: <clip B>   ← restored from past
+
+After Ctrl+Z again (undo):
+  past:   []
+  future: [<clip B>, <clip C>]
+  clipSnapshot: <clip A>   ← back to original
+
+After Ctrl+Shift+Z (redo):
+  past:   [<clip A>]
+  future: [<clip C>]
+  clipSnapshot: <clip B>   ← restored from future
+
+After a new pose edit (commit, forking history):
+  past:   [<clip A>, <clip B>]
+  future: []               ← future discarded on new commit
+  clipSnapshot: <clip D>
+```
+
+Every entry in `past` and `future` is a **deep clone** — modifying the live clip during the next preview session never touches stored history.

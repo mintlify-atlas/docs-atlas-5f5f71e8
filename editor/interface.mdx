@@ -1,0 +1,103 @@
+---
+title: "Reze Studio Interface: A Complete Panel-by-Panel Guide"
+sidebarTitle: "Interface Overview"
+description: "Tour every panel in Reze Studio — left sidebar, WebGPU viewport, timeline, and properties inspector — and understand how they work together."
+---
+
+Reze Studio arranges its workspace into four main regions: a narrow **left panel** that holds the file menu and the bone, morph, and material lists; a large central **WebGPU viewport** that renders the 3D model in real time; a **timeline** at the bottom for keyframe and curve editing; and a **properties inspector** on the right for numeric pose control and interpolation editing. A thin **status footer** runs across the very bottom of the page, reporting the loaded model name, current frame rate, and transient messages. All panels communicate through two shared external stores — the Studio store (document, selection, and undo/redo) and the Playback store (current frame and play state) — so a bone picked in the viewport immediately highlights in the bone list and populates the inspector without any explicit prop plumbing.
+
+## Provider Tree
+
+The component tree is deliberately layered so that high-frequency updates (the 60 Hz playhead) never force a reconcile of low-frequency panels (the bone list or the properties inspector). Every provider below `<Playback>` can subscribe to exactly the slice it needs.
+
+```text
+<Studio>                          external store — clip + selection (undo/redo target)
+  └─ <Playback>                   external store — currentFrame, playing (never touched by rAF ticks)
+       └─ <StudioStatusProvider>  external store — pmx name, fps, message (isolated from page re-renders)
+            └─ <StudioPage>       layout shell + file handlers
+                 ├─ <EngineBridge>          headless — all engine-coupled effects, returns null
+                 ├─ <StudioLeftPanel>       memo'd — bone list, morph list, file menu
+                 ├─ <StudioViewport>        memo'd — WebGPU <canvas>
+                 ├─ <Timeline>              slice-subscribed — dopesheet + curve editor
+                 │    └─ <TimelineCanvas>   imperative playhead + drag redraw handles
+                 ├─ <PropertiesInspector>   slice-subscribed — pose sliders, morph weight (self-samples via rAF during playback)
+                 └─ <StudioStatusFooter>    slice-subscribed — pmx name, fps, clip name
+```
+
+Hot paths — playback ticks, keyframe drags, and pose-slider drags — bypass React entirely. They mutate refs and objects imperatively, repaint the canvas via an imperative handle, and touch React exactly once on pointer release.
+
+## Left Panel
+
+The left panel is a 224 px wide sidebar that hosts the file menu and three tabbed lists: **Bones**, **Morphs**, and **Materials**.
+
+<CardGroup cols={3}>
+  <Card title="File Menu" icon="folder-open">
+    A compact menubar sits at the top of the left panel. **File → New** clears the timeline. **File → Load PMX folder…** swaps the model (textures must sit alongside the `.pmx`). **File → Load VMD…** imports an existing clip. **File → Export VMD…** saves your work — there is no server, so export before closing the tab.
+  </Card>
+  <Card title="Bone List" icon="list">
+    Bones are grouped into categories (Upper Body, Left/Right Arm, hands, Lower Body, etc.). Click a group header to expand it, then click a bone row to select it. The bone list shows a keyframe count badge next to bones that have animation data. Selecting a bone here also activates the gizmo in the viewport.
+  </Card>
+  <Card title="Morph / Material Lists" icon="layers">
+    The **Morphs** tab lists every blend-shape target in the loaded PMX. The **Materials** tab lists every material with a visibility toggle, a shader-preset dropdown, and a click-to-highlight interaction that draws a coloured outline in the viewport. Material selection is mutually exclusive with bone/morph selection.
+  </Card>
+</CardGroup>
+
+## WebGPU Viewport
+
+The viewport is a memo'd `<canvas>` element backed by the WebGPU renderer inside [reze-engine](https://github.com/AmyangXYZ/reze-engine). It delivers real-time rendering of the PMX model complete with IK chain solving, Bullet physics simulation, and morph blending. Because the canvas is wrapped in `memo` and receives no props that change during playback, the React tree above it never reconciles during a 60 Hz playback tick.
+
+<CardGroup cols={2}>
+  <Card title="Bone Picking" icon="cursor-arrow-rays">
+    Double-click anywhere on the model mesh to pick the nearest bone. The Studio store updates `selectedBone`, the bone list scrolls to reveal the row, the Properties Inspector populates with that bone's sliders, and a rings-and-axes gizmo appears at the bone's world position.
+  </Card>
+  <Card title="Transform Gizmo" icon="arrows-pointing-out">
+    The gizmo renders rotation rings (one per axis) and translation axes. Drag a ring to rotate the bone; drag an axis arrow to translate it. Each complete drag gesture writes a single undoable keyframe edit — if no keyframe exists at the current frame, one is inserted automatically.
+  </Card>
+</CardGroup>
+
+For full details see the [Viewport guide](/editor/viewport).
+
+## Timeline
+
+The timeline panel occupies the lower portion of the layout. It contains a toolbar with transport controls and channel-tab buttons, and a canvas area that renders either the **dopesheet** or the **per-channel Bézier curve editor**, depending on which channel tab is active.
+
+<CardGroup cols={2}>
+  <Card title="Dopesheet" icon="diamond">
+    The dopesheet strip at the bottom of the canvas shows diamond-shaped keyframe indicators for every frame that has a key on the selected bone (or across all visible bones when nothing is selected). Drag a diamond sideways to retime; click to select; `Delete` to remove.
+  </Card>
+  <Card title="Curve Editor" icon="chart-spline">
+    Switch to a channel tab (Rot X/Y/Z, Trans X/Y/Z, or Morph) to see the Bézier interpolation curve for that channel. Drag keyframe dots to change timing and value; drag the tangent handles to reshape the easing. Each drag commits as a single undo entry.
+  </Card>
+</CardGroup>
+
+For full details see the [Timeline guide](/editor/timeline).
+
+## Properties Inspector
+
+The Properties Inspector occupies a narrow panel on the right side of the layout. When a bone is selected it shows rotation sliders (Euler YXZ, in degrees), translation sliders, an interpolation curve editor with four sub-tabs (Rotation, Trans X/Y/Z), and track-operation buttons. When a morph is selected it shows a single weight slider. The inspector self-samples the engine pose via a `requestAnimationFrame` loop during playback so the sliders track the animation live without forcing a React re-render on every tick.
+
+<CardGroup cols={2}>
+  <Card title="Pose Sliders" icon="sliders-horizontal">
+    Drag a rotation or translation slider to preview the pose in real time. The drag mutates the keyframe in place and re-seeks the engine, but does not touch the undo/redo stack. On pointer release the edit is committed as a single undoable action.
+  </Card>
+  <Card title="Track Operations" icon="wand-sparkles">
+    **Simplify** removes keyframes whose values are already reproduced by the Bézier interpolation between their neighbours, reducing file size without visible change. **Clear** wipes all keyframes on the selected bone's track. Both operations are undoable.
+  </Card>
+</CardGroup>
+
+For full details see the [Properties Inspector guide](/editor/properties-inspector).
+
+## Status Footer
+
+A single-line footer at the very bottom of the page displays the loaded PMX filename on the left, the live frame rate in the centre, and the current clip name on the right. The footer subscribes to `<StudioStatusProvider>` — a separate external store that is deliberately isolated from the page's main render tree so that FPS counter updates (which arrive every render loop tick) never cause the rest of the UI to reconcile.
+
+## How Panels Communicate
+
+All inter-panel communication flows through two external stores rather than prop callbacks or React context subscriptions:
+
+| Store | Lives in | What it owns |
+|---|---|---|
+| Studio | `context/studio-context.ts` | `clip`, `selectedBone`, `selectedMorph`, `selectedMaterial`, `gizmoVisible`, undo/redo stacks |
+| Playback | `context/playback-context.ts` | `currentFrame`, `playing`, `currentFrameRef` (for rAF consumers) |
+
+Components subscribe to a single slice via `useStudioSelector(s => s.field)` and only re-render when that slice changes. Action bags returned by `useStudioActions()` are referentially stable and never trigger renders. The `currentFrameRef` escape hatch lets the `<EngineBridge>` rAF loop write the live playhead position directly to a ref, so consumers like the Properties Inspector can read the current frame without subscribing — and without re-rendering — at 60 Hz.

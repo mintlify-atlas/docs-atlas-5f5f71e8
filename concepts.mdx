@@ -1,0 +1,209 @@
+---
+title: "Core Animation Concepts in Reze Studio"
+sidebarTitle: "Concepts"
+description: "Understand keyframes, animation clips, bones, morphs, interpolation curves, and the dopesheet before diving into detailed editing guides."
+---
+
+Reze Studio exposes the same underlying data model that MMD's VMD format has always used, but with a modern editing interface layered on top. Understanding the core building blocks — clips, keyframes, bones, morphs, interpolation curves — makes every workflow decision in the editor intuitive. This page explains each concept from the ground up, with TypeScript type shapes derived directly from the codebase so you know exactly what the data looks like.
+
+## Clips and Keyframes
+
+An **animation clip** is the document you edit in Reze Studio. It holds two sparse track maps — one for bones and one for morphs — plus a `frameCount` that defines the clip's total duration.
+
+```typescript
+// From reze-engine (as used in lib/animation.ts and lib/utils.ts)
+interface AnimationClip {
+  boneTracks:  Map<string, BoneKeyframe[]>   // bone name → sorted keyframe array
+  morphTracks: Map<string, MorphKeyframe[]>  // morph name → sorted keyframe array
+  frameCount:  number                         // total duration in frames
+}
+```
+
+A **keyframe** is a snapshot: "at frame N, this bone is in this pose." Between keyframes the engine interpolates using the Bézier curves stored inside each keyframe (see [Interpolation](#interpolation) below).
+
+```typescript
+// BoneKeyframe — one pose snapshot for a single bone
+interface BoneKeyframe {
+  boneName:      string            // matches the PMX bone name exactly
+  frame:         number            // integer frame number (30 fps)
+  rotation:      Quat              // quaternion in local bone space
+  translation:   Vec3              // translation offset in local bone space (MMD units)
+  interpolation: BoneInterpolation // four Bézier curves — one per animated channel group
+}
+
+// MorphKeyframe — one weight snapshot for a single morph target
+interface MorphKeyframe {
+  morphName: string  // matches the PMX morph name exactly
+  frame:     number  // integer frame number
+  weight:    number  // blend weight in [0, 1]
+}
+```
+
+Tracks are **sparse**: only frames with an explicit keyframe exist in the array. The engine interpolates between them. A bone with no track at all holds its rest pose for the entire clip.
+
+The default clip length for a new document is 120 frames (4 seconds at 30 fps). `frameCount` grows automatically after any keyframe insert so the duration always covers the last key — you can never accidentally truncate your own content.
+
+<Note>
+  The `frameCount` shown in the status bar and used by the transport is kept in sync by the store after every edit. You never need to set it manually.
+</Note>
+
+## Bones and the PMX Model
+
+A **PMX model** is a character mesh with a hierarchical skeleton. Each bone in the skeleton has:
+
+- A **name** in Japanese (e.g. `左腕`) and optionally an English alias (e.g. `Left upper arm`). Reze Studio displays both: `左腕 (Left upper arm)`.
+- A **parent bone** — bones form a tree rooted at the centre/root bone, so moving a parent drags its children.
+- A **local transform** — the rotation and translation you animate are expressed in the bone's own local space, relative to its parent.
+
+Reze Studio groups bones into predefined regions (Upper Body, Left Arm, Right Hand, Lower Body, etc.) so the sidebar list stays navigable on complex rigs with hundreds of bones.
+
+### IK Bones
+
+Some bones are **IK bones** — their transform is computed by the engine's IK solver from a target position rather than from a direct rotation value. Foot IK bones (`左足ＩＫ`, `右足ＩＫ`) are the most common example: you animate the foot target position and the knee angle is solved automatically.
+
+<Info>
+  Reze Studio animates IK bones as ordinary bone keyframes. The VMD format stores the IK target's transform, not the solved chain — which is correct VMD behaviour and ensures exported files play back correctly in other MMD tools.
+</Info>
+
+### Bone Naming and Full-Width Characters
+
+MMD's VMD format historically uses Japanese bone names. The engine matches keyframe `boneName` strings against the loaded PMX using exact string equality, including handling of full-width digits (e.g. `左足ＩＫ` vs `左足IK`). Reze Studio normalises these variants automatically during lookup so mismatches between half-width and full-width ASCII characters do not break playback.
+
+## Morphs
+
+**Morphs** (also called blend shapes) are PMX vertex deformations that interpolate facial expressions, eye shapes, mouth poses, and other per-vertex offsets. A morph is driven by a single scalar weight in `[0, 1]`.
+
+```typescript
+// MorphKeyframe revisited — weight is the only animated value
+interface MorphKeyframe {
+  morphName: string  // e.g. "笑い" (smile), "あ" (mouth "a"), "まばたき" (blink)
+  frame:     number
+  weight:    number  // 0 = no contribution, 1 = full deformation
+}
+```
+
+In the editor, morphs appear in the **Morph list** in the left panel, separate from the bone list. Selecting a morph shows a weight slider in the Properties Inspector. Dragging the slider inserts or updates a `MorphKeyframe` at the current playhead frame.
+
+<Tip>
+  Layering multiple morph weights simultaneously (e.g. "smile" + "left eye wink") is fully supported — each morph has its own independent track and is blended additively by the engine.
+</Tip>
+
+## Interpolation
+
+VMD interpolation is defined by **Bézier curves** stored directly on each `BoneKeyframe`. The curve describes not the value itself, but the *easing* — how quickly the engine moves from the previous keyframe's value to this one.
+
+### The BoneInterpolation Structure
+
+Each keyframe stores four independent Bézier curves: one for rotation (as a single slerp-parameter curve) and one each for the X, Y, and Z translation channels.
+
+```typescript
+// BoneInterpolation — four Bézier curves, each with two control points in [0, 127] space
+interface BoneInterpolation {
+  rotation:     ControlPoint[]  // [p1, p2] — shapes the rotation slerp parameter
+  translationX: ControlPoint[]  // [p1, p2] — shapes the X translation lerp parameter
+  translationY: ControlPoint[]  // [p1, p2] — shapes the Y translation lerp parameter
+  translationZ: ControlPoint[]  // [p1, p2] — shapes the Z translation lerp parameter
+}
+
+interface ControlPoint {
+  x: number  // time axis handle position in [0, 127]
+  y: number  // value axis handle position in [0, 127]
+}
+```
+
+The two control points are the inner handles of a cubic Bézier in normalised `[0, 127]` space (matching the raw VMD binary format). The curve is evaluated at a given parameter `t ∈ [0, 1]` — the fraction of the way through the segment — and the output drives how far along the value range the interpolation is at that moment.
+
+### What the Handles Mean
+
+| Handle shape | Visual feel |
+|---|---|
+| Both handles near the diagonal (20, 20) → (107, 107) | Linear — constant velocity |
+| P1 low, P2 high (slow-out → slow-in) | Ease both ends — starts slow, peaks in the middle, arrives slow |
+| P1 high, P2 low | Ease in and out reversed — fast start, fast finish, slow middle |
+| P1 and P2 both pushed to the right | Slow start (ease-in) |
+| P1 and P2 both pushed to the left | Slow finish (ease-out) |
+
+The **default "linear" preset** uses control points `(20, 20)` and `(107, 107)` — not perfectly linear, but a close approximation that matches what most VMD exporters write when no curve is specified.
+
+<Note>
+  The interpolation curve is stored on the **destination** keyframe — the one you are moving *towards*. This is a VMD convention: the curve on keyframe B shapes the segment A → B. Selecting keyframe B in the dopesheet and opening the curve editor shows the curves that control how the engine arrives at B's pose.
+</Note>
+
+## The Dopesheet vs the Curve Editor
+
+Both views live in the same timeline panel; a tab toggle switches between them.
+
+<Accordion title="Dopesheet — use this for timing">
+  The dopesheet shows keyframes as **diamonds** on a horizontal time axis, one row per bone track. It answers the question: *when* do things happen?
+
+  Use the dopesheet to:
+  - **Retime** — drag a diamond left or right to move a keyframe in time.
+  - **Select and delete** — click one or more diamonds, press `Delete`.
+  - **Nudge** — select diamonds and press `←` / `→` to shift by one frame.
+  - **Scan** — quickly see whether a bone has any keys in a given range.
+
+  The dopesheet does not show you *what* the values are or how the motion eases — only when keyframes exist.
+</Accordion>
+
+<Accordion title="Curve Editor — use this for motion quality">
+  The curve editor shows **value-over-time graphs**, one coloured line per channel (Rot.X in red, Rot.Y in green, Rot.Z in blue, Trans.X in orange, Trans.Y in teal, Trans.Z in purple). It answers the question: *how* does the motion feel?
+
+  Use the curve editor to:
+  - **Shape easing** — drag the Bézier handles on the selected keyframe to change the velocity profile entering that key.
+  - **Diagnose jitter** — a jagged curve means conflicting keyframes or overshoot; smooth S-curves produce organic motion.
+  - **Compare channels** — all six channels overlay on the same graph so you can see how rotation and translation interact.
+
+  Zoom the time axis with `Ctrl/⌘ + scroll wheel` and the value axis with `Shift + scroll wheel` to work comfortably on dense sections.
+</Accordion>
+
+<Tip>
+  A good workflow is to rough in all timing in the dopesheet first (get the "when" right), then switch to the curve editor channel by channel to add easing (get the "feel" right).
+</Tip>
+
+## Undo / Redo Model
+
+Reze Studio uses a **snapshot-based undo stack** with a 100-step limit. Understanding what goes on the stack — and what does not — prevents surprises.
+
+### What Goes on the Stack
+
+Every **committed clip edit** is recorded as one undo entry:
+
+- Inserting a keyframe (via slider release, gizmo drag end, or pose inspector commit)
+- Deleting one or more keyframes
+- Dragging a keyframe to a new frame in the dopesheet
+- Editing a Bézier handle in the curve editor
+- Adjusting morph weight (on slider release)
+- Track **Simplify** (keyframe reduction)
+- Track **Clear**
+
+Each of these creates an immutable deep clone of the clip at the moment of commit. The undo operation restores that clone.
+
+### What Does NOT Go on the Stack
+
+- **VMD file loads** — loading a new `.vmd` replaces the entire clip and clears past/future. Replaying a load would also require replaying the file-pick dialog, which is impossible in a browser.
+- **PMX folder loads** — same reasoning; a model swap resets the skeleton context.
+- **Mid-drag previews** — while you are dragging a slider or gizmo handle, the clip's keyframe data is mutated in place for performance (no React re-render, no clone). Only the final release commits to history.
+
+```typescript
+// Simplified studio store state shape (from context/studio-context.ts)
+type StudioState = {
+  clip:          AnimationClip | null   // live, possibly mid-drag-mutated
+  clipSnapshot:  AnimationClip | null   // immutable clone at last commit
+  past:          AnimationClip[]        // undo stack (oldest first), max 100
+  future:        AnimationClip[]        // redo stack
+  // ... selection fields
+}
+```
+
+The key insight: `commit()` pushes `clipSnapshot` (the pre-edit clean copy) onto `past` — not the current `clip` (which may have been mutated by a preview). This means undo always restores a clean state that was never partially written by a drag gesture.
+
+<Warning>
+  The undo stack is cleared when you load a new VMD or PMX. If you loaded a VMD, made 50 edits, then loaded another VMD, there is no way to undo back past the second load. Export your work before loading new files if you need to preserve a recovery point.
+</Warning>
+
+### Keyboard Shortcuts for Undo/Redo
+
+| Action | Shortcut |
+|---|---|
+| Undo | `Ctrl + Z` (Windows/Linux) or `⌘ + Z` (macOS) |
+| Redo | `Ctrl + Shift + Z` (Windows/Linux) or `⌘ + Shift + Z` or `⌘ + Y` (macOS) |

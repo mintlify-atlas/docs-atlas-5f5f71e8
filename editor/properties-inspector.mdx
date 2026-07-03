@@ -1,0 +1,124 @@
+---
+title: "Properties Inspector: Bone Poses and Keyframe Details"
+sidebarTitle: "Properties Inspector"
+description: "Use the Properties Inspector to view and edit bone rotation and translation values, morph weights, interpolation curves, and manage track operations."
+---
+
+The Properties Inspector is Reze Studio's right-hand panel. It updates whenever you select a bone, a morph, or a keyframe — and it stays live during playback by running its own `requestAnimationFrame` loop that samples the engine's current pose directly, bypassing React state updates entirely. When a bone is selected you see rotation and translation sliders, an interpolation curve editor, and track-operation buttons. When a morph is selected you see a single weight slider. When nothing is selected (or a material is selected) the panel shows only the track-operation buttons.
+
+## Bone Properties
+
+When a bone is selected, the top of the inspector shows the bone's Japanese name as the primary title and its English translation as a subtitle (e.g. `頭` with subtitle `Head`), followed by a live frame indicator (`F 0042 / 0900`) that updates during playback.
+
+### Rotation
+
+Rotation values are displayed and edited in **Euler YXZ degrees** — the angle convention used by MMD's VMD format. Three sliders correspond to the three rotation channels:
+
+| Slider | Channel key | Colour |
+|---|---|---|
+| Rot X | `rx` | `#e25555` (red) |
+| Rot Y | `ry` | `#44bb55` (green) |
+| Rot Z | `rz` | `#4477dd` (blue) |
+
+The range for each rotation slider is **−180° to +180°**. You can drag the slider thumb, click the track, or click directly on the numeric readout to type a value. The value is converted to and from a quaternion via `quatToEuler` / `eulerToQuat` (Euler YXZ convention matching MMD) internally.
+
+### Translation
+
+Below the rotation sliders, three translation sliders control the bone's local-space offset:
+
+| Slider | Channel key | Colour |
+|---|---|---|
+| Trans X | `tx` | `#e2a055` (amber) |
+| Trans Y | `ty` | `#55bba0` (teal) |
+| Trans Z | `tz` | `#7755dd` (purple) |
+
+The range for each translation slider is **−10 to +10** world units. Direct numeric input is available on each row.
+
+## Preview vs Commit
+
+The Properties Inspector separates **preview** (mid-drag) from **commit** (pointer release) to keep the undo/redo history clean and the UI responsive:
+
+<Steps>
+  <Step title="Preview (onChange)">
+    While you are dragging a slider or the viewport gizmo, the keyframe object is mutated **in place** (the engine's clip shares the same JavaScript objects). The engine reloads the clip and re-seeks immediately so the viewport reflects the new pose. No React state is updated, so the Timeline and the rest of the inspector do not reconcile.
+  </Step>
+  <Step title="Commit (onCommit)">
+    On pointer release, `commit()` is called once with a shallow-cloned clip reference (`{ ...clip, boneTracks: new Map(clip.boneTracks) }`). This pushes the change onto the undo/redo stack, triggers `<EngineBridge>` to re-upload the clip, and notifies all slice subscribers (Timeline, Inspector) to re-render with the new reference.
+  </Step>
+  <Step title="No-op guard">
+    A `dragDirtyRef` flag tracks whether the current drag has actually changed any values. If the user clicks a slider thumb without moving it, the commit on pointer release is skipped, leaving the undo/redo history untouched.
+  </Step>
+</Steps>
+
+<Info>
+  The same preview/commit split applies to gizmo drags in the viewport. Inspector slider drags and viewport gizmo drags share identical semantics — both land as a single undo entry per gesture.
+</Info>
+
+## Morph Weight
+
+When a morph is selected (via the Morphs tab in the left panel), the inspector replaces the bone sliders with a single **Weight** slider:
+
+| Slider | Axis label | Colour | Range |
+|---|---|---|---|
+| Weight | W | `#c084fc` (purple) | 0 – 1 |
+
+Dragging the weight slider at a frame where no morph keyframe exists automatically inserts one. The timeline tab switches to **Morph** automatically when a morph drag starts, so the curve editor reflects the new weight keyframe immediately.
+
+## Interpolation Editor
+
+Directly below the rotation and translation sliders, the **Interpolation** section shows the Bézier easing curve for the keyframe currently under the playhead. It has four sub-tabs, one per interpolation channel stored in the VMD format:
+
+| Tab | Interpolation target |
+|---|---|
+| Rotation | Shared rotation curve (applied to all three Euler axes together, matching VMD's single rotation interpolation block) |
+| Trans X | X-axis translation Bézier |
+| Trans Y | Y-axis translation Bézier |
+| Trans Z | Z-axis translation Bézier |
+
+Each tab shows a square curve editor widget with two draggable control-point handles. The curve runs from (0, 0) at bottom-left to (1, 1) at top-right, and the handles define the two inner control points of the cubic Bézier in VMD's 0–127 coordinate space.
+
+Preset buttons to the right of the curve editor offer common easing shapes (Linear, Ease In, Ease Out, Ease In/Out, etc.). Clicking a preset updates the control points and immediately commits the change.
+
+<Note>
+  The interpolation editor only activates when a keyframe exists at or before the current playhead position for the selected bone. The sub-tabs are disabled when no bone is selected or when the bone has no keyframes. During playback, the active keyframe label updates whenever the playhead crosses a keyframe boundary — the editor reflects the last keyframe encountered, not the one ahead.
+</Note>
+
+## Track Operations
+
+At the bottom of the inspector, the **Operations** section provides four buttons organised into two rows:
+
+<CardGroup cols={2}>
+  <Card title="Insert" icon="plus-circle">
+    Inserts a keyframe at the current playhead frame for the selected bone or morph. If a keyframe already exists at that frame, it is overwritten with the current pose. The operation is undoable.
+  </Card>
+  <Card title="Delete" icon="trash">
+    Deletes the currently selected keyframe (single selection only). Enabled only when exactly one keyframe is selected in the timeline. The operation is undoable.
+  </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="Simplify" icon="minimize-2">
+    Runs keyframe reduction on the selected bone's track. Any key whose value is already reproduced within tolerance by the Bézier curve between its neighbours is removed. This reduces VMD file size without a visible change in the animation. Requires at least three keyframes on the track. Undoable.
+  </Card>
+  <Card title="Clear" icon="x-circle">
+    Removes **all** keyframes from the selected bone's track. Use with caution — the bone will no longer have any animation data. Undoable via `Ctrl/⌘+Z`.
+  </Card>
+</CardGroup>
+
+## Channel Colour Reference
+
+The channel colours used throughout the inspector, timeline curve editor, and dopesheet are defined in `lib/animation.ts`:
+
+```ts
+// Rotation channels (ROT_CHANNELS)
+{ key: "rx", label: "Rot.X",   color: "#e25555" }  // red
+{ key: "ry", label: "Rot.Y",   color: "#44bb55" }  // green
+{ key: "rz", label: "Rot.Z",   color: "#4477dd" }  // blue
+
+// Translation channels (TRA_CHANNELS)
+{ key: "tx", label: "Trans.X", color: "#e2a055" }  // amber
+{ key: "ty", label: "Trans.Y", color: "#55bba0" }  // teal
+{ key: "tz", label: "Trans.Z", color: "#7755dd" }  // purple
+```
+
+These colours are applied consistently everywhere a channel is represented visually — slider accent colours, curve stroke colours, and the active tab highlight in the timeline toolbar.

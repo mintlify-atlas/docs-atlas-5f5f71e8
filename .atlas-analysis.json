@@ -1,0 +1,95 @@
+{
+  "projectType": "saas",
+  "projectName": "Reze Studio",
+  "projectDescription": "A browser-native, WebGPU-powered MMD animation curve editor for creating and editing .vmd animation clips directly in the browser.",
+  "theme": "willow",
+  "primaryColor": "#78a8d7",
+  "lightColor": "#2a3958",
+  "darkColor": "#5f85a9",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "concepts"
+            ]
+          },
+          {
+            "group": "Using the Editor",
+            "pages": [
+              "editor/interface",
+              "editor/viewport",
+              "editor/timeline",
+              "editor/properties-inspector",
+              "editor/keyboard-shortcuts"
+            ]
+          },
+          {
+            "group": "Working with Files",
+            "pages": [
+              "files/loading-models",
+              "files/vmd-import-export"
+            ]
+          },
+          {
+            "group": "Animation Workflow",
+            "pages": [
+              "workflow/posing-bones",
+              "workflow/keyframe-editing",
+              "workflow/curve-editing",
+              "workflow/morph-keyframing",
+              "workflow/undo-redo"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/architecture",
+              "reference/tech-stack",
+              "reference/development"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "WebGPU-powered real-time 3D rendering with IK and physics",
+    "Timeline with dopesheet and per-channel Bézier curve editor",
+    "PMX model and VMD animation import/export",
+    "Viewport bone picking and 3D transform gizmo",
+    "Per-channel Bézier interpolation editing (rotX, rotY, rotZ, tX, tY, tZ)",
+    "Morph weight keyframing",
+    "Keyframe insert/delete/drag/nudge in dopesheet",
+    "Track simplify (keyframe reduction) and clear operations",
+    "Undo/redo with 100-step history",
+    "Material selection with viewport highlight",
+    "Keyboard shortcuts for playback, navigation, and editing",
+    "Unsaved-change warning on tab close/refresh",
+    "Bone list with grouped hierarchy and JP/EN labels"
+  ],
+  "publicApiSurface": [
+    "useStudioSelector(selector) — subscribe to a slice of document/selection state",
+    "useStudioActions() — stable actions: commit, replaceClip, setSelectedBone, setSelectedMorph, setSelectedMaterial, undo, redo",
+    "usePlaybackSelector(selector) — subscribe to transport state (currentFrame, playing)",
+    "usePlaybackActions() — setCurrentFrame, setPlaying",
+    "usePlayback() — full playback state + actions",
+    "usePlaybackFrameRef() — non-subscribing ref to live playhead frame",
+    "Studio — React provider for document/selection store",
+    "Playback — React provider for transport store",
+    "StudioState — clip, selectedBone, selectedMorph, selectedMaterial, selectedKeyframes, gizmoVisible, past, future",
+    "PlaybackState — currentFrame, playing",
+    "SelectedKeyframe — { bone?, morph?, frame, channel?, type: 'dope' | 'curve' }",
+    "BONE_GROUPS — predefined bone group mappings (Upper Body, Left/Right Arm, etc.)",
+    "ROT_CHANNELS / TRA_CHANNELS — per-channel definitions with key, label, color, get/set",
+    "quatToEuler(q) / eulerToQuat(ex, ey, ez) — quaternion ↔ Euler (YXZ, degrees)",
+    "boneDisplayLabel(boneName) — JP + English display label",
+    "EngineBridge — headless component for engine-coupled effects",
+    "File → New / Load PMX folder / Load VMD / Export VMD"
+  ]
+}

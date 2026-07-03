@@ -1,0 +1,108 @@
+---
+title: "Keyframe Editing: Insert, Move, Delete, and Simplify"
+sidebarTitle: "Keyframe Editing"
+description: "Insert keyframes at the playhead, drag to retime in the dopesheet, delete unwanted keys, and use track simplify to clean up redundant data."
+---
+
+Every animation in Reze Studio is a collection of **keyframes** — snapshots of a bone's pose at a specific frame number. The engine interpolates smoothly between those snapshots using per-channel Bézier curves. Editing an animation means managing that collection: inserting keyframes to set new poses, retiming them by dragging, removing unnecessary ones, and running simplify to compress the result. Every one of those operations is undoable and lives in a 100-step history stack.
+
+## Inserting a Keyframe
+
+There are two ways a keyframe comes into existence.
+
+**Implicit insert via posing:** The most common path. Select a bone, scrub to the frame you want, and start moving a rotation or translation slider (or drag the viewport gizmo). If no keyframe exists at that frame, Reze Studio creates one automatically — it reads the engine's interpolated pose at the current frame, creates a new `BoneKeyframe` with that pose, and applies your edit on top. On pointer release the whole gesture lands as one undo-able commit.
+
+**Explicit insert via the Properties Inspector:** Click the **Insert** button in the Operations section of the Properties Inspector while a bone or morph is selected. This inserts a keyframe at the current playhead frame using the engine's live interpolated pose (or weight, for morphs) as the value. Useful when you want to "pin" the current interpolated pose without changing any values.
+
+<Note>
+  The explicit Insert button is enabled only when a bone or morph is selected and a clip is loaded. If no bone is selected the button is greyed out.
+</Note>
+
+## The Dopesheet
+
+The dopesheet is the lower panel of the Reze Studio layout. It shows a horizontal timeline ruler at the top and one row per visible bone track beneath it. Each **diamond** on a row represents a keyframe at that frame number. The playhead is the red vertical line that you scrub by clicking or dragging the ruler.
+
+Key dopesheet conventions:
+
+- A row is visible only for bones that belong to the currently-selected bone group.
+- When a single bone is selected its diamonds are drawn in the accent colour; all other rows dim.
+- Diamond position maps 1:1 to the `frame` field on the `BoneKeyframe` object.
+- The ruler numbers update as you zoom (`Ctrl/⌘ + scroll`) or scroll horizontally.
+
+## Dragging Keyframes to Retime
+
+To shift a keyframe in time, click and drag its diamond **horizontally** in the dopesheet.
+
+- While dragging, the keyframe's `frame` value is mutated in place and the canvas redraws imperatively — no React re-render occurs per mouse move.
+- On **pointer release** a single `commit()` call fires, deep-clones the modified clip, and pushes the previous snapshot onto the undo stack. That means retiming a keyframe is **one undoable edit** regardless of how far you dragged.
+
+You can drag multiple selected keyframes simultaneously (see *Selecting multiple keyframes* below) — all selected diamonds shift by the same frame delta.
+
+## Deleting Keyframes
+
+<Steps>
+  <Step title="Select the keyframe">
+    Click a diamond in the dopesheet to select it. The selected diamond highlights in blue. You can also select multiple keyframes with Shift-click or box-select.
+  </Step>
+  <Step title="Delete">
+    Click the **Delete** button in the Operations section of the Properties Inspector, or press the `Delete` / `Backspace` key when the dopesheet has focus. The keyframe is removed from the track and the change is committed as one undo step.
+  </Step>
+</Steps>
+
+The Delete button is enabled only when exactly one keyframe is selected (`singleSel !== null`) and a clip is loaded.
+
+## Arrow Key Nudge
+
+With a keyframe selected in the dopesheet, press **← / →** to nudge it by exactly one frame. Each nudge press is a separate commit and therefore a separate undo step. This is useful for fine-tuning timing without switching away from the dopesheet.
+
+<Note>
+  The ← / → keys have two different behaviours depending on focus. When the **dopesheet or timeline canvas** has focus they nudge the selected keyframe. When the **playhead frame input** field has focus they decrement/increment the playhead frame instead.
+</Note>
+
+## Track Simplify
+
+**Simplify** removes keyframes from the selected bone's track that the Bézier curves between their neighbours can already reproduce within a small tolerance — effectively compressing the track without visible loss of motion quality.
+
+The algorithm used is a top-down Schneider-style recursive fit:
+
+1. It samples the original track at every integer frame to capture the full motion.
+2. It tries to collapse the whole span into a single VMD segment by fitting four independent Bézier curves (one rotation slerp-t, three per-axis translation).
+3. If the maximum deviation at any frame is within tolerance, the intermediate keys are dropped and the fitted curves are stored on the surviving endpoint.
+4. If the fit fails, it splits at the frame with the highest error and recurses on both halves.
+
+The fixed tolerances are:
+
+| Tolerance           | Value   | Meaning                              |
+| ------------------- | ------- | ------------------------------------ |
+| `SIMPLIFY_ROT_DEG`  | `0.5 °` | Maximum allowed rotation drift       |
+| `SIMPLIFY_TRANS`    | `0.01`  | Maximum allowed translation drift (MMD units, ≈ 3 mm at character scale) |
+
+To run simplify:
+
+1. Select the bone whose track you want to simplify.
+2. Click **Simplify** in the Track section of the Properties Inspector.
+
+The button is enabled only when the selected bone has more than two keyframes (`boneTrackLen > 2`). The operation commits as a single undo step.
+
+## Track Clear
+
+**Clear** wipes every keyframe from the selected bone's track in one operation.
+
+Click **Clear** in the Track section of the Properties Inspector. The button is enabled whenever the selected bone has at least one keyframe. The operation is undoable — one undo step restores the full track.
+
+## Selecting Multiple Keyframes
+
+Click a diamond to select a single keyframe. To build a multi-selection:
+
+- **Click additional diamonds** while holding `Shift` to add or remove them from the selection.
+- The selection is stored as an array of `SelectedKeyframe` objects, each containing the bone name, frame number, channel (for curve-editor handles), and type (`"dope"` or `"curve"`).
+
+When multiple keyframes are selected, drag operations move all of them simultaneously by the same frame delta. Delete operations remove all selected keyframes in a single commit.
+
+<Note>
+  **History limit:** Reze Studio keeps the last **100** committed edits. When the 101st edit is committed the oldest entry is dropped from the stack. Plan accordingly for large editing sessions — export a VMD checkpoint periodically to avoid losing work you can no longer undo.
+</Note>
+
+<Warning>
+  **Loading a VMD or PMX file does NOT go onto the undo stack.** `File → Load VMD…`, `File → Load PMX folder…`, and `File → New` all call `replaceClip()` internally, which sets `past: []` and `future: []`. The history is cleared entirely on load. Export your work before loading a new file if you want to preserve undo history.
+</Warning>
